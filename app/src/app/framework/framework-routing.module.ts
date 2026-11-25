@@ -91,25 +91,6 @@ const routes: Routes = [
         },
         loadChildren: () => import('./object_groups/object-groups.module').then(m => m.ObjectGroupsModule),
     },
-    {
-        path: 'person-groups',
-        canActivateChild: [PermissionGuard],
-        data: {
-            breadcrumb: 'Person Groups',
-            right: 'base.framework.object.view'
-        },
-        loadChildren: () => import('./person-group/person-group.module').then(m => m.PersonGroupModule),
-    },
-
-    {
-        path: 'persons',
-        canActivateChild: [PermissionGuard],
-        data: {
-            breadcrumb: 'Persons',
-            right: 'base.framework.object.view'
-        },
-        loadChildren: () => import('../toolbox/isms/person/person.module').then(m => m.PersonModule),
-    },
 ];
 
 @NgModule({

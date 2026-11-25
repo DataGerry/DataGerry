@@ -3,7 +3,7 @@
     <div>
       <div *permissionLink="'base.framework.object.edit'" class="form-check form-switch">
         <input type="checkbox" class="form-check-input active-control" id="object-view-active"
-               (change)="toggleChange()" [checked]="activeState">
+               aria-label="Object active" (change)="toggleChange()" [checked]="activeState" [disabled]="activeLocked">
         <label class="form-check-label" for="object-view-active"></label>
       </div>
     </div>

@@ -52,6 +52,9 @@ import {
      * The label to be displayed above or alongside the select component
      */
     @Input() label: string = '';
+
+    /** Accessible name for a select shown without a visible label. */
+    @Input() ariaLabel: string = '';
   
     /**
      * The array of objects for the dropdown

@@ -1,0 +1,81 @@
+.rules-section,
+.rules-actions,
+.rules-result,
+.sync-retry {
+    max-width: 960px;
+}
+
+.rules-section {
+    margin-bottom: 1.5rem;
+
+    &__title {
+        font-size: 1.25rem;
+        margin-bottom: 0.75rem;
+    }
+}
+
+.rules-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.rules-result {
+    margin-bottom: 1rem;
+}
+
+.sync-retry {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+
+    app-warning-alert {
+        flex: 1;
+    }
+}
+
+.override-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 0.75rem;
+}
+
+.override-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 0.75rem;
+    align-items: start;
+
+    &__field {
+        min-width: 0;
+    }
+
+    // Lines the button up with the selects below their labels.
+    app-button {
+        margin-top: 2.25rem;
+    }
+}
+
+.dry-run-list {
+    margin: 0;
+    padding-left: 1.25rem;
+
+    &__reasons {
+        margin: 0.25rem 0 0.5rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .override-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.no-person-type {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}

@@ -1,0 +1,6 @@
+@if (personId(); as personId) {
+    <a class="user-person-link" [routerLink]="['/framework/object/view', personId]">
+        <i class="fas fa-user" aria-hidden="true"></i>
+        Person #{{ personId }}
+    </a>
+}

@@ -21,13 +21,13 @@ import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 import { ReplaySubject, takeUntil } from 'rxjs';
 
 
-import { ObjectPreviewModalComponent } from '../../modals/object-preview-modal/object-preview-modal.component';
 import { ObjectDeleteModalComponent } from '../../modals/object-delete-modal/object-delete-modal.component';
 import { RenderResult } from '../../../models/cmdb-render';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { CableDeleteGuardService } from '../../object-view/ports-overview/services/cable-delete-guard.service';
+import { isSyncDeleteBlocked } from '../../../utils/synced-object.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -54,6 +54,10 @@ export class ObjectTableActionsComponent implements OnDestroy {
 
     private modalRef: NgbModalRef;
 
+    public get deletable(): boolean {
+        return !isSyncDeleteBlocked(this.result);
+    }
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -73,25 +77,6 @@ export class ObjectTableActionsComponent implements OnDestroy {
     }
 
 /* -------------------------------------------------- MODAL SECTION ------------------------------------------------- */
-
-    /**
-     * Open the preview modal
-     */
-    public openPreviewModal(): void {
-        if (this.isPremiumLocked()) {
-            this.premiumFeatureService.promptUpgrade(LicenseFeature.Ipam);
-            return;
-        }
-
-        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, {
-            size: 'xl',
-            scrollable: true,
-            windowClass: 'dg-modal-window',
-            backdropClass: 'dg-modal-window-backdrop'
-        });
-        this.modalRef.componentInstance.renderResult = this.result;
-    }
-
 
     public handleDelete(publicID: number){
         if (this.isPremiumLocked()) {
@@ -126,7 +111,7 @@ export class ObjectTableActionsComponent implements OnDestroy {
 
 
     /**
-     * A special-type (IPAM) object is locked for preview/delete when IPAM is not part of the edition.
+     * A special-type (IPAM) object is locked for delete when IPAM is not part of the edition.
      * View/edit/copy navigate and are blocked by the route guard, so they are not re-checked here.
      */
     private isPremiumLocked(): boolean {

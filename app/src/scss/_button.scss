@@ -67,9 +67,11 @@ app-button {
         line-height: 1;
     }
 
+    /* Taller than the button's line-height: 1 so the ellipsis clip keeps descenders (g, p, y). */
     &__label {
         overflow: hidden;
         text-overflow: ellipsis;
+        line-height: 1.3;
     }
 
     /* currentColor keeps the badge at the label's contrast on every variant and tone */
@@ -248,7 +250,13 @@ app-button {
 /* Row icon actions sit beside the lists' plain icon links, so they keep those links' 14px icon. */
 .dg-button--link.dg-button--icon-only {
     --dgb-icon: 14px;
+    min-height: 24px; /* WCAG 2.5.8 target size */
     text-decoration: none;
+}
+
+/* Row icon actions sit straight in table cells without a flex gap, so each spaces itself. */
+td app-button:has(> .dg-button--link.dg-button--icon-only):not(:is(.eom-row-actions, .gap-1, .gap-2, .gap-3) *) {
+    margin-inline: 2px;
 }
 
 /* ------------------------------------------------------- states ---------------------------------------------------- */

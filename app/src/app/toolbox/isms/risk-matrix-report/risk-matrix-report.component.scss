@@ -1,5 +1,11 @@
-/* centres the report and guarantees the width never exceeds A4 */
+/* hugs the matrices so the PDF snapshot carries no empty margins */
 .report-wrapper {
+    width: fit-content;
     margin: 0 auto;
-  }
-  
+}
+
+.report-section {
+    display: block;
+    width: fit-content;
+    margin: 0 auto;
+}

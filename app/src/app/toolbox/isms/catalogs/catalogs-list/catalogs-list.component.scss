@@ -2,6 +2,16 @@
   margin-bottom: 1rem;
 }
 
+/* Long titles and license names wrap so the table keeps its actions in view. */
+.catalog-wrap {
+  display: inline-block;
+  white-space: normal;
+
+  &--title { max-width: 14rem; }
+  &--license { max-width: 10rem; }
+  &--version { max-width: 7rem; }
+}
+
 .imported-cell {
   display: flex;
   align-items: center;

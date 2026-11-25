@@ -156,7 +156,10 @@ export class RiskMatrixReportComponent implements OnInit {
     /* PDF export -------------------------------------------------------------- */
     async exportPdf(): Promise<void> {
 
-        if (!this.reportContent) { 
+        const wrapper = this.reportContent?.nativeElement;
+        const sections = wrapper?.querySelectorAll<HTMLElement>('.report-section');
+
+        if (!wrapper || !sections?.length) {
             this.toast.error('PDF export failed');
             return;
         }
@@ -166,38 +169,49 @@ export class RiskMatrixReportComponent implements OnInit {
             /* let the browser paint before the blocking capture */
             await new Promise<void>(resolve => setTimeout(resolve));
 
-            /* snapshot */
-            const canvas = await html2canvas(this.reportContent.nativeElement, {
+            const scale = 2;
+            const wrapperRect = wrapper.getBoundingClientRect();
+            const sectionRects = Array.from(sections, section => section.getBoundingClientRect());
+
+            const snapshot = await html2canvas(wrapper, {
                 backgroundColor: '#ffffff',
-                scale: 2,
-                useCORS: true
+                scale,
+                useCORS: true,
+                ignoreElements: element => !this.isNeededForCapture(element, wrapper)
             });
 
-            /* basic pdf setup */
             const pdf = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
 
-            /* dimensions */
             const pageW = pdf.internal.pageSize.getWidth();
             const pageH = pdf.internal.pageSize.getHeight();
-            const margin = 40;                 // 40 pt on every side
-            const usableWidth = pageW - margin * 2;
+            const margin = 40;
+            const gap = 24;
+            const maxW = pageW - margin * 2;
+            const maxH = pageH - margin * 2;
 
-            const imgData = canvas.toDataURL('image/png');
-            const imgProps = pdf.getImageProperties(imgData);
-            const ratio = imgProps.width / imgProps.height;
-            const imgH = usableWidth / ratio;
+            let y = margin;
 
-            let y = margin;                         // insertion cursor
-            let remaining = imgH;
+            for (const rect of sectionRects) {
+                const canvas = this.cropCanvas(
+                    snapshot,
+                    (rect.left - wrapperRect.left) * scale,
+                    (rect.top - wrapperRect.top) * scale,
+                    rect.width * scale,
+                    rect.height * scale
+                );
 
-            while (remaining > 0) {
-                pdf.addImage(imgData, 'PNG', margin, y, usableWidth, imgH);
-                remaining -= (pageH - margin * 2);
+                const fit = Math.min(maxW / canvas.width, maxH / canvas.height);
+                const imgW = canvas.width * fit;
+                const imgH = canvas.height * fit;
 
-                if (remaining > 0) {
+                if (y > margin && y + imgH > pageH - margin) {
                     pdf.addPage();
-                    y = margin - pageH;                 // next slice starts at top
+                    y = margin;
                 }
+
+                /* JPEG is embedded as-is; PNG would be decoded and stored uncompressed */
+                pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', (pageW - imgW) / 2, y, imgW, imgH);
+                y += imgH + gap;
             }
 
             pdf.save(`risk-matrix-report_${getCurrentDate()}`);
@@ -207,5 +221,27 @@ export class RiskMatrixReportComponent implements OnInit {
         } finally {
             this.loader.hide();
         }
+    }
+
+    /* html2canvas clones the whole page; skipping unrelated nodes keeps the capture fast */
+    private isNeededForCapture(element: Element, wrapper: HTMLElement): boolean {
+        return element.contains(wrapper)
+            || wrapper.contains(element)
+            || element.closest('head') !== null
+            || element instanceof HTMLStyleElement
+            || element instanceof HTMLLinkElement;
+    }
+
+    private cropCanvas(source: HTMLCanvasElement, x: number, y: number,
+        width: number, height: number): HTMLCanvasElement {
+
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(width);
+        canvas.height = Math.round(height);
+        canvas.getContext('2d')?.drawImage(
+            source, Math.round(x), Math.round(y), canvas.width, canvas.height,
+            0, 0, canvas.width, canvas.height
+        );
+        return canvas;
     }
 }

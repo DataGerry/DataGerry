@@ -30,15 +30,17 @@
           <i class="fas fa-clone" aria-hidden="true"></i>
         </a>
 
-        <app-button *permissionLink="'base.framework.object.delete';requirements:'DELETE';acl:acl"
-            icon="fas fa-trash-alt"
-            variant="ghost"
-            tone="danger"
-            size="sm"
-            title="delete"
-            ariaLabel="Delete object"
-            (clicked)="handleDelete(renderResult?.object_information?.object_id)">
-        </app-button>
+        @if (deletable) {
+          <app-button *permissionLink="'base.framework.object.delete';requirements:'DELETE';acl:acl"
+              icon="fas fa-trash-alt"
+              variant="ghost"
+              tone="danger"
+              size="sm"
+              title="delete"
+              ariaLabel="Delete object"
+              (clicked)="handleDelete(renderResult?.object_information?.object_id)">
+          </app-button>
+        }
 
         <a
           class="dg-button dg-button--ghost dg-button--neutral dg-button--sm dg-button--icon-only"

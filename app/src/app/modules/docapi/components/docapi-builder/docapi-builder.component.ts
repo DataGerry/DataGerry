@@ -15,8 +15,9 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, inject, AfterViewInit, EventEmitter, Input, OnDestroy, Output, ViewChild } from '@angular/core';
+import { Component, inject, AfterViewInit, EventEmitter, Input, OnDestroy, Output, ViewChild, signal } from '@angular/core';
 import { HttpResponse } from '@angular/common/http';
+import { Location } from '@angular/common';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { WizardComponent } from '@rg-software/angular-archwizard';
@@ -54,10 +55,12 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     private readonly modalService = inject(NgbModal);
     private readonly exportDownloadService = inject(ExportDownloadService);
     private readonly loaderService = inject(LoaderService);
+    private readonly location = inject(Location);
 
     @Input() public mode: number = CmdbMode.Create;
     @Input() public docInstance?: DocTemplate;
     @Output() public labelChanged = new EventEmitter<string>();
+    @Output() public templateCreated = new EventEmitter<number>();
     @ViewChild('wizard', { static: false })
     public wizard: WizardComponent;
 
@@ -66,7 +69,8 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
     @ViewChild(DocapiBuilderTypeStepComponent, { static: true })
     public typeStep: DocapiBuilderTypeStepComponent;
-    public typeStepFormValid: boolean = false;
+    /** Set from the step's output, since the step only becomes valid while the builder view renders. */
+    public readonly typeStepValid = signal(false);
     public typeParam: any = undefined;
 
     @ViewChild(DocapiBuilderContentStepComponent, { static: true })
@@ -241,6 +245,11 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
     public onTypeParamReady(): void {
         this.registerTypeParamWatcher();
+
+        // The child applies its preset parameters before this watcher subscribes.
+        if (!this.warningModalOpen) {
+            this.previousTypeState = this.getCurrentTypeState();
+        }
     }
 
     private registerTypeParamWatcher(): void {
@@ -429,6 +438,9 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
             this.docInstance.public_id = createdTemplateId;
             this.mode = CmdbMode.Edit;
+            this.settingsStep?.lockName();
+            this.location.replaceState(`/docapi/edit/${createdTemplateId}`);
+            this.templateCreated.emit(createdTemplateId);
             this.toast.success('Template saved successfully.');
             return createdTemplateId;
         }
@@ -480,8 +492,8 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
                 this.toast.success("Template successfully created!");
                 this.router.navigate(['/docapi/'], { queryParams: { docAddSuccess: createResp.body } });
             },
-            error: (error: any) => {
-                // console.error(error);
+            error: () => {
+                this.toast.error('Unable to save the template. Please review it and try again.');
             }
         });
     }
@@ -506,8 +518,8 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
                 this.toast.success(`Template successfully edited: ${name}`);
                 this.router.navigate(['/docapi/'], { queryParams: { docEditSuccess: publicId } });
             },
-            error: (error: any) => {
-                // console.error(error);
+            error: () => {
+                this.toast.error('Unable to save the template. Please review it and try again.');
             }
         });
     }

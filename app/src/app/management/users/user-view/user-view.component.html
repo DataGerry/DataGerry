@@ -27,6 +27,12 @@
           <dt class="col-3">Authenticator</dt>
           <dd class="col-9">{{user?.authenticator}}</dd>
         </dl>
+        @if (user) {
+          <div class="d-flex flex-wrap align-items-center gap-3">
+            <app-user-person-link [userId]="user.public_id"></app-user-person-link>
+            <app-user-sync-pending [pending]="user.sync_pending"></app-user-sync-pending>
+          </div>
+        }
       </div>
       <div class="tab-pane fade" id="nav-group" role="tabpanel">
         <dl class="mt-3 row">
@@ -38,3 +44,8 @@
   </div>
 
 </div>
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

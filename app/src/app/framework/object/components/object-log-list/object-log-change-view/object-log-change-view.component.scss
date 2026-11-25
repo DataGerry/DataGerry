@@ -90,3 +90,8 @@ $pill-empty-border: #d1d5db;
     }
   }
 }
+
+.field-diff__none {
+    margin: 0;
+    color: var(--bs-secondary-color);
+}

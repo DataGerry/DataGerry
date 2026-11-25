@@ -48,6 +48,7 @@ import {
 
 export interface PersonOption extends PersonSelection {
     display_label: string;
+    disabled?: boolean;
 }
 
 const PAGE_SIZE = 25;
@@ -69,7 +70,9 @@ const LOAD_ERROR = 'Persons could not be loaded.';
             [items]="options()"
             [multiple]="multiple()"
             [placeholder]="placeholder()"
+            [ariaLabel]="ariaLabel()"
             [dropdownDirection]="dropdownDirection()"
+            [appendTo]="appendTo()"
             [loading]="isFetching()"
             [typeahead]="searchTerms$"
             [formControl]="personControl"
@@ -99,7 +102,15 @@ export class PersonPickerComponent implements ControlValueAccessor, OnInit {
     public readonly kinds = input<ReadonlyArray<PersonKind>>(PERSON_KINDS);
     public readonly multiple = input(false);
     public readonly placeholder = input('Type to search...');
+    /** Accessible name when the picker has no visible label. */
+    public readonly ariaLabel = input('');
     public readonly dropdownDirection = input<'bottom' | 'top' | 'auto'>('auto');
+    /** Selector the dropdown is attached to, so a clipping container does not cut it off. */
+    public readonly appendTo = input('');
+    /** Ids the host already holds elsewhere; they are not offered. */
+    public readonly excludedIds = input<ReadonlyArray<number>>([]);
+    /** Offered but not selectable; ng-select shows a disabled option. */
+    public readonly unselectable = input<((selection: PersonSelection) => boolean) | null>(null);
 
     /** The picked entries, so a host can store which kind each id is. */
     public readonly selectionChange = output<PersonOption[]>();
@@ -112,9 +123,14 @@ export class PersonPickerComponent implements ControlValueAccessor, OnInit {
 
     protected readonly options = computed<PersonOption[]>(() => {
         const selected = this.selectedOptions();
-        const selectedIds = new Set(selected.map(option => option.object_id));
+        const hiddenIds = new Set([...selected.map(option => option.object_id), ...this.excludedIds()]);
 
-        return [...selected, ...this.loadedOptions().filter(option => !selectedIds.has(option.object_id))];
+        const unselectable = this.unselectable();
+        const offered = this.loadedOptions()
+            .filter(option => !hiddenIds.has(option.object_id))
+            .map(option => (unselectable?.(option) ? { ...option, disabled: true } : option));
+
+        return [...selected, ...offered];
     });
 
     protected readonly isFetching = signal(false);

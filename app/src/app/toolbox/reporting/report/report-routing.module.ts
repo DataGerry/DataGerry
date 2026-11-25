@@ -19,6 +19,7 @@ import { NgModule } from '@angular/core';
 import { RouterModule, Routes } from '@angular/router';
 import { ReportOverviewComponent } from './components/report-overview/report-overview.component';
 import { CreateReportComponent } from './components/create-report/create-report.component';
+import { unsavedReportChangesGuard } from './guards/unsaved-report-changes.guard';
 
 const routes: Routes = [
     {
@@ -32,6 +33,7 @@ const routes: Routes = [
     {
         path: 'create',
         component: CreateReportComponent,
+        canDeactivate: [unsavedReportChangesGuard],
         data: {
             breadcrumb: 'Add Report',
             right: 'base.framework.report.add'
@@ -40,6 +42,7 @@ const routes: Routes = [
     {
         path: 'edit/:id',  // Add edit route with report ID
         component: CreateReportComponent,
+        canDeactivate: [unsavedReportChangesGuard],
         data: {
             breadcrumb: 'Edit Report',
             right: 'base.framework.report.edit'

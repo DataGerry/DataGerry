@@ -1,0 +1,16 @@
+@if (group()) {
+    <div class="group-mapping">
+        @if (mapping(); as mapping) {
+            <span>
+                Mapped to
+                <a [routerLink]="['/framework/object/view', mapping.person_group_id]">
+                    person group #{{ mapping.person_group_id }}</a>
+            </span>
+            <app-button label="Unmap" variant="link" tone="danger" size="xs" [disabled]="store.isBusy()"
+                [ariaLabel]="'Unmap user group ' + groupName()" (clicked)="onUnmap()"></app-button>
+        } @else {
+            <app-button label="Map" variant="link" tone="brand" size="xs" [disabled]="store.isBusy()"
+                [ariaLabel]="'Map user group ' + groupName()" (clicked)="onMap()"></app-button>
+        }
+    </div>
+}

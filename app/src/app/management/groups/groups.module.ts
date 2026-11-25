@@ -44,6 +44,8 @@ import { GroupTableListComponent } from './components/group-table-list/group-tab
 import { GroupFormHelperComponent } from './components/group-form/group-form-helper/group-form-helper/group-form-helper.component';
 import { GroupAclComponent } from './group-acl/group-acl.component';
 import { CoreModule } from 'src/app/core/core.module';
+import { GroupMapSummaryComponent } from './components/group-map-summary/group-map-summary.component';
+import { GroupMappingCellComponent } from './components/group-mapping-cell/group-mapping-cell.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -76,7 +78,9 @@ import { CoreModule } from 'src/app/core/core.module';
         UsersModule,
         AclModule,
         NgbTooltipModule,
-        CoreModule
+        CoreModule,
+        GroupMapSummaryComponent,
+        GroupMappingCellComponent
     ]
 })
 export class GroupsModule {}

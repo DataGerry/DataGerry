@@ -33,6 +33,10 @@ export interface PageConfig {
     margin?: Partial<PageConfigMargin>;
 }
 
+/** Generated documents are always A4. */
+export const A4_PAGE_WIDTH_MM = 210;
+export const A4_PAGE_HEIGHT_MM = 297;
+
 export const DEFAULT_PAGE_MARGINS: Readonly<PageMargins> = {
     top: 20,
     bottom: 20,
@@ -45,11 +49,21 @@ const PAGE_MARGINS_END_MARKER = '/* DATAGERRY_PAGE_MARGINS_END */';
 
 
 export function parseMarginValue(value: unknown): number | null {
+    if (value === null || value === undefined || (typeof value === 'string' && !value.trim())) {
+        return null;
+    }
+
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed < 0) {
         return null;
     }
     return parsed;
+}
+
+
+/** Opposite margins must leave some printable area on the page. */
+export function marginsFitPage(margins: PageMargins): boolean {
+    return margins.left + margins.right < A4_PAGE_WIDTH_MM && margins.top + margins.bottom < A4_PAGE_HEIGHT_MM;
 }
 
 

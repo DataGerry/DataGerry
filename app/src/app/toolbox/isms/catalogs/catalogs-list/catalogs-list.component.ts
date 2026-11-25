@@ -62,6 +62,7 @@ interface CatalogRowTemplateContext {
 export class CatalogsListComponent implements OnInit {
   private readonly titleTemplate = viewChild.required<TemplateRef<CatalogRowTemplateContext>>('titleTemplate');
   private readonly sizeTemplate = viewChild.required<TemplateRef<CatalogRowTemplateContext>>('sizeTemplate');
+  private readonly versionTemplate = viewChild.required<TemplateRef<CatalogRowTemplateContext>>('versionTemplate');
   private readonly licenseTemplate = viewChild.required<TemplateRef<CatalogRowTemplateContext>>('licenseTemplate');
   private readonly actionTemplate = viewChild.required<TemplateRef<CatalogRowTemplateContext>>('actionTemplate');
   private readonly controlsTemplate = viewChild.required<TemplateRef<CatalogRowTemplateContext>>('controlsTemplate');
@@ -221,7 +222,7 @@ export class CatalogsListComponent implements OnInit {
     this.columns = [
       this.column('Title', 'title', 'auto', this.titleTemplate(), 'left'),
       this.column('Publisher', 'publisher', '110px'),
-      this.column('Version', 'version', '150px'),
+      this.column('Version', 'version', '150px', this.versionTemplate()),
       this.column('Language', 'language', '100px'),
       this.column('Controls', 'controls', '100px', this.controlsTemplate()),
       { ...this.column('Imported', 'id', '200px', this.importTemplate()), name: 'imported' },

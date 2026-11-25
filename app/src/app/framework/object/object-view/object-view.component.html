@@ -70,6 +70,7 @@
       <!-- Header -->
       <div class="mt-4">
         <cmdb-object-header [renderResult]="renderResult"></cmdb-object-header>
+        <cmdb-synced-object-note [renderResult]="renderResult"></cmdb-synced-object-note>
       </div>
       <hr>
 
@@ -142,6 +143,9 @@
                   <hr class="object-section-divider" />
                   <cmdb-rack-overview [publicId]="currentObjectID"></cmdb-rack-overview>
                 </ng-container>
+              } @else if (isPerson) {
+                <hr class="object-section-divider" />
+                <cmdb-person-groups-panel [renderResult]="renderResult"></cmdb-person-groups-panel>
               }
             </cmdb-object-relations>
           </div>

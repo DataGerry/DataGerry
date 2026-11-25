@@ -1,0 +1,7 @@
+@if (store.lastPass()?.left?.length) {
+  <section class="group-map-summary card" aria-label="Last mapping">
+    <div class="card-body">
+      <app-sync-pass-summary [pass]="{ left: store.lastPass().left }"></app-sync-pass-summary>
+    </div>
+  </section>
+}

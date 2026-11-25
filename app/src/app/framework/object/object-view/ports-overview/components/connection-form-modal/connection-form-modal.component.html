@@ -184,7 +184,7 @@
       dgModalFooter
       [label]="primaryAction.label"
       [icon]="primaryAction.icon"
-      variant="solid" tone="brand"
+      [variant]="isReviewStep ? 'solid' : 'soft'" tone="brand"
       [disabled]="primaryDisabled"
       (clicked)="onPrimary()">
     </app-button>

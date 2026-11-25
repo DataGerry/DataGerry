@@ -29,6 +29,11 @@
     [groupIDs]="data"></cmdb-user-table-group-cell>
 </ng-template>
 
+<ng-template #userNameTemplate let-data="data" let-item="item">
+  {{data}}
+  <app-user-sync-pending [pending]="item?.sync_pending"></app-user-sync-pending>
+</ng-template>
+
 <ng-template #dateTemplate let-data="data">
   {{data | dateFormatter}}
 </ng-template>

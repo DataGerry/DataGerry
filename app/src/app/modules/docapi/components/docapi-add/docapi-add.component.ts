@@ -36,7 +36,14 @@ export class DocapiAddComponent {
   }
   
 
+  /** Saving for a preview creates the template, so the page continues as an edit. */
+  public onTemplateCreated(): void {
+    this.mode = CmdbMode.Edit;
+  }
+
+
   public get title(): string {
-    return this.templateLabel ? `Add ${this.templateLabel} Template` : 'Add Template';
+    const action = this.mode === CmdbMode.Edit ? 'Edit' : 'Add';
+    return this.templateLabel ? `${action} ${this.templateLabel} Template` : `${action} Template`;
   }
 }

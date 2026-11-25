@@ -161,7 +161,7 @@ function describeValue(value: unknown, field: ReportFilterField): ReportSentence
         return { kind: 'value', text: option?.label || option?.name || String(value) };
     }
 
-    const isPlainValue = field.type === 'number' || field.type === 'date';
+    const isPlainValue = field.type === 'number' || field.type === 'location' || field.type === 'date';
 
     return { kind: 'value', text: String(value), quoted: !isPlainValue };
 }

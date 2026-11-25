@@ -1,8 +1,6 @@
 import { Injectable } from '@angular/core';
 
-import * as zxcvbn_ from 'zxcvbn';
-
-const zxcvbn = zxcvbn_;
+import zxcvbn from 'zxcvbn';
 
 @Injectable({
   providedIn: 'root'

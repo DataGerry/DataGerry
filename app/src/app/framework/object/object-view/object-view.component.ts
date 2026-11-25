@@ -81,6 +81,10 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
     return this.renderResult?.object_information?.special_type === SpecialType.SUBNET;
   }
 
+  public get isPerson(): boolean {
+    return this.renderResult?.object_information?.special_type === SpecialType.PERSON;
+  }
+
   public get isRack(): boolean {
     return this.renderResult?.object_information?.special_type === SpecialType.RACK;
   }
