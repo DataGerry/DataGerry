@@ -28,6 +28,8 @@ import { unparse } from 'papaparse';
 import { Sort, SortDirection } from 'src/app/layout/table/table.types';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ReportService } from '../../../services/report.service';
+import { CopyService } from 'src/app/core/services/copy.service';
+import { describeConditionParts, FilterRuleNode, ReportSentencePart, sentenceText } from '../filter-builder/report-filter-labels';
 
 @Component({
     selector: 'app-run-report',
@@ -44,6 +46,7 @@ export class RunReportComponent implements OnInit, OnChanges {
     private readonly fileSaverService = inject(FileSaverService);
     private readonly location = inject(Location);
     private readonly loaderService = inject(LoaderService);
+    private readonly copyService = inject(CopyService);
 
     @Input() public reportId: number;
     @Input() public typeId: number;
@@ -69,6 +72,8 @@ export class RunReportComponent implements OnInit, OnChanges {
     public sort = { order: -1, name: 'public_id' };
     public selectedObjectsIDs: number[] = [];
     public isLoading$ = this.loaderService.isLoading$;
+    public sentenceParts: ReportSentencePart[] = [];
+    private reportConditions: FilterRuleNode | null = null;
 
 
     //properties for pagination and search
@@ -107,14 +112,20 @@ export class RunReportComponent implements OnInit, OnChanges {
 
                             this.loading = true;
 
-                            // A bare /reports/run/:id link carries no query params, so they come from the report.
-                            const reportDefaults$ = this.typeId
+                            this.reportConditions = this.conditionsFromNavigation();
+
+                            // Opened from the list, everything is passed in; a refresh or bare link reads the report.
+                            const reportDefaults$ = this.typeId && this.reportConditions
                                 ? of(null)
                                 : this.loadReportDefaults().pipe(
                                     tap((report) => {
-                                        this.typeId = report?.type_id;
-                                        this.selectedFields = report?.selected_fields;
-                                        this.mdsMode = report?.mds_mode;
+                                        this.reportConditions = report?.conditions ?? null;
+
+                                        if (!this.typeId) {
+                                            this.typeId = report?.type_id;
+                                            this.selectedFields = report?.selected_fields;
+                                            this.mdsMode = report?.mds_mode;
+                                        }
                                     })
                                 );
 
@@ -137,6 +148,7 @@ export class RunReportComponent implements OnInit, OnChanges {
         ).subscribe({
             next: () => {
                 this.processReportResults();
+                this.sentenceParts = describeConditionParts(this.reportConditions, this.types?.fields ?? [], this.types?.label);
                 this.loading = false;
             },
             error: (error) => {
@@ -181,6 +193,12 @@ export class RunReportComponent implements OnInit, OnChanges {
                 this.loading = false;
             }
         });
+    }
+
+    private conditionsFromNavigation(): FilterRuleNode | null {
+        const conditions = (this.location.getState() as { conditions?: unknown } | null)?.conditions;
+
+        return conditions && typeof conditions === 'object' && !Array.isArray(conditions) ? conditions as FilterRuleNode : null;
     }
 
     private normalizeSelectedFields(): void {
@@ -859,6 +877,10 @@ export class RunReportComponent implements OnInit, OnChanges {
     /**
      * Navigates back to the previous page in the browser's history.
      */
+    public copyReportDescription(): void {
+        this.copyService.copyWithFeedback(sentenceText(this.sentenceParts), 'report description');
+    }
+
     goBack(): void {
         this.location.back()
     }

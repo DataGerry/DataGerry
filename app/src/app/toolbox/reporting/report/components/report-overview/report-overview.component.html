@@ -29,6 +29,8 @@
 
   <ng-template #actionsTemplate let-item="item">
     <div class="action-buttons">
+      <app-button variant="link" tone="brand" size="xs" icon="far fa-eye icon-view" ariaLabel="Quick look"
+        title="Quick look" (clicked)="openQuickLook(item)"></app-button>
       <app-button variant="link" tone="brand" size="xs" icon="fas fa-play icon-run" ariaLabel="Run Report"
         [title]="hasMissingRequiredFields(item) ? 'No fields selected' : 'Run Report'"
         [disabled]="hasMissingRequiredFields(item)" (clicked)="runReport(item)"></app-button>

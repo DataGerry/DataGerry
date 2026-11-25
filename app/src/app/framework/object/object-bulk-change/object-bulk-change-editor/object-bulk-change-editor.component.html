@@ -15,7 +15,9 @@
       </div>
     </div>
     <div id="object-view-title">
-      <cmdb-active-badge [activeStatus]="activeState"></cmdb-active-badge>
+      @if (activeState !== undefined) {
+        <cmdb-active-badge [activeStatus]="activeState"></cmdb-active-badge>
+      }
       {{type.label}}
     </div>
     <div id="object-view-version"></div>
