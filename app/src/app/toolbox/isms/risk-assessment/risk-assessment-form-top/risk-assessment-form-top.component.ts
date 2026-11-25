@@ -72,8 +72,6 @@ export class RiskAssessmentFormTopComponent implements OnInit {
     { label: 'Object Group', value: 'OBJECT_GROUP' }
   ];
 
-  private static cachedTypes: CmdbType[] | null = null;
-
   /* ══════════════════════════════════════ */
 
 
@@ -92,7 +90,7 @@ export class RiskAssessmentFormTopComponent implements OnInit {
     //  The object selector needs the types wherever the object can still be picked
     const objectIsLocked = this.fromObject || this.fromObjectGroup || this.fromReport;
     if (!objectIsLocked && this.mode !== 'VIEW') {
-      this.loadTypesIfNeeded();
+      this.loadTypes();
     }
   
     //  Lock both in report mode
@@ -134,23 +132,15 @@ export class RiskAssessmentFormTopComponent implements OnInit {
     this.parentForm.get('object_id')?.setValue(ids?.[0] ?? null);
   }
 
-  private loadTypesIfNeeded(): void {
-    if (RiskAssessmentFormTopComponent.cachedTypes) {
-      this.allTypeIds = RiskAssessmentFormTopComponent.cachedTypes.map(t => t.public_id);
-      this.typesLoaded = true;
-      return;
-    }
-
+  private loadTypes(): void {
     this.loader.show();
-    const params = { filter: '', limit: 0, sort: 'sort', order: 1, page: 1 };
+    const params = { filter: '', limit: 0, sort: 'sort', order: 1, page: 1, projection: ['public_id'] };
 
     this.typeService.getTypes(params)
       .pipe(finalize(() => this.loader.hide()))
       .subscribe({
         next: (resp) => {
-          const types = resp.results as CmdbType[];
-          RiskAssessmentFormTopComponent.cachedTypes = types;
-          this.allTypeIds = types.map(t => t.public_id);
+          this.allTypeIds = (resp.results as CmdbType[]).map(t => t.public_id);
           this.typesLoaded = true;
         },
         error: (err) => {
