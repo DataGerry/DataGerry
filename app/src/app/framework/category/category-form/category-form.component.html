@@ -206,7 +206,6 @@
                                             class="cf-type"
                                             [dndDraggable]="type"
                                             [dndEffectAllowed]="effect"
-                                            (dndMoved)="onDragged(type, unAssignedTypes, 'move')"
                                         >
                                             <span class="cf-type__grip" dndHandle aria-hidden="true">
                                                 <i class="fas fa-grip-vertical"></i>
@@ -253,7 +252,7 @@
                                     id="category-types"
                                     class="cf-list cf-list--drop"
                                     dndDropzone
-                                    (dndDrop)="onDrop($event, assignedTypes, true)"
+                                    (dndDrop)="onDrop($event)"
                                 >
                                     <li class="cf-type cf-type--placeholder" dndPlaceholderRef></li>
 
@@ -271,7 +270,6 @@
                                             class="cf-type"
                                             [dndDraggable]="type"
                                             [dndEffectAllowed]="effect"
-                                            (dndMoved)="onDragged(type, assignedTypes, 'move', true)"
                                         >
                                             <span class="cf-type__grip" dndHandle aria-hidden="true">
                                                 <i class="fas fa-grip-vertical"></i>
