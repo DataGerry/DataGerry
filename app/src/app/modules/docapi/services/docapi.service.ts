@@ -146,7 +146,7 @@ export class DocapiService<T = DocTemplate> implements ApiServicePrefix {
     public checkDocTemplateExists(docName: string) {
         const options = this.getBaseOptions();
 
-        return this.api?.callGet<T>(`${ this.servicePrefix }/name/${ docName }`, options);
+        return this.api?.callGet<T>(`${ this.servicePrefix }/name/${ encodeURIComponent(docName) }`, options);
     }
 
 /* -------------------------------------------------- CRUD - UPDATE ------------------------------------------------- */

@@ -23,7 +23,6 @@ import { CoreModule } from 'src/app/core/core.module';
 import { AuthModule } from 'src/app/modules/auth/auth.module';
 import { TableModule } from 'src/app/layout/table/table.module';
 import { AddCategoryModalComponent } from './components/category-add-modal/category-add-modal.component';
-import { CategoryFormComponent } from './components/category-form/category-form.component';
 import { CategoryOverviewComponent } from './components/category-overview/category-overview.component';
 import { ReportCategoryRoutingModule } from './report-category-routing.module';
 
@@ -32,7 +31,6 @@ import { ReportCategoryRoutingModule } from './report-category-routing.module';
 @NgModule({
     declarations: [
         CategoryOverviewComponent,
-        CategoryFormComponent,
         AddCategoryModalComponent
     ],
     imports: [

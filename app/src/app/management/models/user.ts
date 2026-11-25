@@ -31,5 +31,7 @@ export class User {
   public authenticator: string;
   public group_ids: number[];
   public active?: boolean;
+  /** Read-only: the last sync of this user failed. Never sent back. */
+  public readonly sync_pending?: boolean;
   config_items_limit: number;
 }

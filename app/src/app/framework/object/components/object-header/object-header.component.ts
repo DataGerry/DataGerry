@@ -21,6 +21,7 @@ import { RenderResult } from '../../../models/cmdb-render';
 import { ObjectService } from '../../../services/object.service';
 import { ToastService } from '../../../../layout/toast/toast.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
+import { isSyncedPerson } from '../../../utils/synced-object.util';
 
 @Component({
     selector: 'cmdb-object-header',
@@ -31,6 +32,8 @@ import { SidebarService } from 'src/app/layout/services/sidebar.service';
 export class ObjectHeaderComponent {
 
   public activeState: boolean = true;
+  /** A synced person is active exactly while its user is. */
+  public activeLocked = false;
   private result: RenderResult;
   private objectID: number;
 
@@ -41,6 +44,7 @@ export class ObjectHeaderComponent {
     if (result !== undefined) {
       this.result = result;
       this.activeState = this.result.object_information.active;
+      this.activeLocked = isSyncedPerson(result);
       this.objectID = this.result.object_information.object_id;
     }
   }
@@ -54,10 +58,20 @@ export class ObjectHeaderComponent {
   private readonly sidebarService = inject(SidebarService);
 
   public toggleChange() {
+    if (this.activeLocked) {
+      return;
+    }
+
     this.activeState = this.activeState !== true;
-    this.objectService.changeState(this.objectID, this.activeState).subscribe((resp: boolean) => {
-      this.toastService.info(`Changed active state to ${ this.activeState }`);
-      this.stateChange.emit(true);
+    this.objectService.changeState(this.objectID, this.activeState).subscribe({
+      next: () => {
+        this.toastService.info(`Changed active state to ${ this.activeState }`);
+        this.stateChange.emit(true);
+      },
+      error: (error) => {
+        this.activeState = !this.activeState;
+        this.toastService.error(error?.error?.message);
+      }
     });
     this.sidebarService.ReloadSideBarData();
   }

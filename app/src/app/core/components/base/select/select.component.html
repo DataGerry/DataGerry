@@ -8,7 +8,7 @@
   </label>
 }
 
-  <ng-select [labelForId]="controlId" [items]="items" [bindLabel]="bindLabel" [bindValue]="bindValue"
+  <ng-select [labelForId]="controlId" [ariaLabel]="ariaLabel || undefined" [items]="items" [bindLabel]="bindLabel" [bindValue]="bindValue"
     [multiple]="multiple"
     [placeholder]="placeholder" [disabled]="disabled" [clearable]="true" [(ngModel)]="value"
     [dropdownPosition]="dropdownDirection" [appendTo]="appendTo" (change)="onValueChange($event)" (blur)="onTouched()"

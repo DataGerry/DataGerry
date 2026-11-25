@@ -18,7 +18,6 @@
 import { NgModule } from '@angular/core';
 import { RouterModule, Routes } from '@angular/router';
 import { CategoryOverviewComponent } from './components/category-overview/category-overview.component';
-import { CategoryFormComponent } from './components/category-form/category-form.component';
 
 // Report categories have no own right family, they are managed under the report rights
 const routes: Routes = [
@@ -30,16 +29,9 @@ const routes: Routes = [
             right: 'base.framework.report.view'
         }
     },
-    {
-        path: 'categories/add',
-        component: CategoryFormComponent,
-        data: { right: 'base.framework.report.add' }
-    },
-    {
-        path: 'categories/edit/:categoryID',
-        component: CategoryFormComponent,
-        data: { right: 'base.framework.report.edit' }
-    }
+    // Categories are added and edited in modals on the overview
+    { path: 'categories/add', redirectTo: 'categories' },
+    { path: 'categories/edit/:categoryID', redirectTo: 'categories' }
 ];
 
 @NgModule({

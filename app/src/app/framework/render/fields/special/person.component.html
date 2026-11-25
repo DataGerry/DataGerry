@@ -35,8 +35,7 @@
             [loading]="isFetching()"
             [typeahead]="searchTerms$"
             [formControlName]="data.name"
-            [errorMessage]="controller.errors?.required && (controller.dirty || controller.touched)
-                ? data.label + ' is a required field.' : ''"
+            [errorMessage]="errorMessage"
             (selectedItemChange)="onSelectionChange($event)"
             (scrolledToEnd)="onScrollEnd()"
         ></app-form-select>

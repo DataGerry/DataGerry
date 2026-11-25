@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, OnInit } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { finalize } from 'rxjs';
 
 import { DocapiService } from '../../services/docapi.service';
@@ -24,6 +24,7 @@ import { DocapiService } from '../../services/docapi.service';
 import { DocTemplate } from '../../models/cmdb-doctemplate';
 import { CmdbMode } from '../../../../framework/modes.enum';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -43,7 +44,9 @@ export class DocapiEditComponent implements OnInit {
     constructor(
         private docapiService: DocapiService,
         private route: ActivatedRoute,
-        private loaderService: LoaderService
+        private loaderService: LoaderService,
+        private router: Router,
+        private toast: ToastService
     ) {
         this.route?.params?.subscribe((id) => this.docId = id?.publicId);
     }
@@ -53,9 +56,18 @@ export class DocapiEditComponent implements OnInit {
         this.loaderService.show();
         this.docapiService?.getDocTemplate(this.docId).pipe(
             finalize(() => this.loaderService.hide())
-        ).subscribe((docInstance: DocTemplate) => {
-            this.docInstance = docInstance;
-            this.templateLabel = docInstance?.label?.trim() ?? '';
+        ).subscribe({
+            next: (docInstance: DocTemplate) => {
+                // The service maps a 204 to an empty list.
+                if (!docInstance || Array.isArray(docInstance)) {
+                    this.leaveForMissingTemplate();
+                    return;
+                }
+
+                this.docInstance = docInstance;
+                this.templateLabel = docInstance?.label?.trim() ?? '';
+            },
+            error: () => this.leaveForMissingTemplate()
         });
     }
 
@@ -65,5 +77,11 @@ export class DocapiEditComponent implements OnInit {
 
     public get title(): string {
         return this.templateLabel ? `Edit ${this.templateLabel} Template` : 'Edit Template';
+    }
+
+
+    private leaveForMissingTemplate(): void {
+        this.toast.error('The document template could not be loaded.');
+        this.router.navigate(['/docapi']);
     }
 }

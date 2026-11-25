@@ -1,0 +1,26 @@
+<dg-modal icon="fas fa-people-arrows" title="Persons cannot move" titleId="person-sync-blocked-title"
+    (dismiss)="activeModal.dismiss()">
+
+    <p class="mb-2">
+        {{ blockedCount() }} of {{ rows().length }} person(s) cannot move to their new Type.
+        Copy leaves a deactivated copy of each and creates a new person; Cancel changes nothing.
+    </p>
+
+    <ul class="blocked-list list-unstyled mb-0">
+        @for (row of blockedRows(); track row.person_id) {
+            <li class="blocked-list__item">
+                <strong>Person #{{ row.person_id }}</strong> of user {{ row.user_label }}
+                <ul class="blocked-list__reasons">
+                    @for (blocker of row.blockers; track $index) {
+                        <li>{{ blocker }}</li>
+                    }
+                </ul>
+            </li>
+        }
+    </ul>
+
+    <app-button dgModalFooter variant="outline" tone="neutral" label="Cancel"
+        (clicked)="activeModal.dismiss()"></app-button>
+    <app-button dgModalFooter variant="solid" tone="brand" label="Copy"
+        (clicked)="activeModal.close(copyResult)"></app-button>
+</dg-modal>

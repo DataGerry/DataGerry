@@ -93,16 +93,6 @@
                     [routerLink]="['/framework/relation']">
                     <i class="fas fa-exchange-alt"></i> Relations
                   </a>
-                  <a class="dropdown-item" *permissionLink="'base.framework.object.view'"
-                    [routerLink]="['/framework/persons']">
-                    <i class="fas fa-user-friends"></i> Persons
-                  </a>
-
-                  <a class="dropdown-item" *permissionLink="'base.framework.object.view'"
-                    [routerLink]="['/framework/person-groups']">
-                    <i class="fas fa-users"></i> Person Groups
-                  </a>
-
                   <ng-container>
                     <a class="dropdown-item" *permissionLink="'base.framework.objectGroup.view'"
                       [routerLink]="['/framework/object_groups']" [class.dg-premium-locked]="isLocked(LicenseFeature.Isms)">
@@ -258,6 +248,7 @@
                   <div class="dropdown-header" *permissionLink="[
                       'base.system.view',
                       'base.system.edit',
+                      'base.user-management.sync.edit',
                     ]">
                     System
                   </div>
@@ -266,6 +257,10 @@
                   <a class="dropdown-item" *permissionLink="'base.system.edit'"
                     [routerLink]="['/settings/regional-settings']">
                     <i class="fas fa-calendar-alt"></i> Regional Settings
+                  </a>
+                  <a class="dropdown-item" *permissionLink="'base.user-management.sync.edit'"
+                    [routerLink]="['/settings/access-data-rules']">
+                    <i class="fas fa-user-shield"></i> Access &amp; Data Rules
                   </a>
 
                   <!-- Other System Items: Shown only when !isCloudMode -->

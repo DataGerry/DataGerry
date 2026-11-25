@@ -13,19 +13,19 @@
   <!-- everything inside this wrapper will be rendered to the canvas -->
   <div #reportContent class="report-wrapper mx-auto">
 
-    <app-risk-matrix-grid [title]="'Risk matrix – BEFORE treatment'" [impacts]="impacts" [likelihoods]="likelihoods"
+    <app-risk-matrix-grid class="report-section" [title]="'Risk matrix – BEFORE treatment'" [impacts]="impacts" [likelihoods]="likelihoods"
       [cells]="before" [riskClasses]="riskClasses" (viewAssessments)="onCell($event)">
     </app-risk-matrix-grid>
 
     <div style="height: 40px;"></div>
 
-    <app-risk-matrix-grid [title]="'Risk matrix – CURRENT state'" [impacts]="impacts" [likelihoods]="likelihoods"
+    <app-risk-matrix-grid class="report-section" [title]="'Risk matrix – CURRENT state'" [impacts]="impacts" [likelihoods]="likelihoods"
       [cells]="current" [riskClasses]="riskClasses" (viewAssessments)="onCell($event)">
     </app-risk-matrix-grid>
 
     <div style="height: 40px;"></div>
 
-    <app-risk-matrix-grid [title]="'Risk matrix – AFTER treatment'" [impacts]="impacts" [likelihoods]="likelihoods"
+    <app-risk-matrix-grid class="report-section" [title]="'Risk matrix – AFTER treatment'" [impacts]="impacts" [likelihoods]="likelihoods"
       [cells]="after" [riskClasses]="riskClasses" (viewAssessments)="onCell($event)">
     </app-risk-matrix-grid>
 

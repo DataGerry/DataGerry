@@ -151,7 +151,7 @@ export class DocapiListComponent implements OnInit, OnDestroy {
                 const regex: any = {};
                 regex[column?.name] = {
                     $regex: String(this.filter),
-                    $options: 'ismx'
+                    $options: 'ism'
                 };
                 or.push(regex);
             }
@@ -167,7 +167,7 @@ export class DocapiListComponent implements OnInit, OnDestroy {
                     $elemMatch: {
                             value: {
                                 $regex: String(this.filter),
-                                $options: 'ismx'
+                                $options: 'ism'
                             }
                     }
                 }
@@ -186,6 +186,14 @@ export class DocapiListComponent implements OnInit, OnDestroy {
 
         this.docapiService.getDocTemplateList(params).pipe(takeUntil(this.subscriber), finalize(() =>  this.loaderService?.hide())).subscribe(
             (apiResponse: APIGetMultiResponse<DocTemplate>) => {
+                const total = apiResponse?.total ?? 0;
+                // The page can run past the end after a delete.
+                if (!apiResponse?.results?.length && this.page > 1 && total > 0) {
+                    this.page = this.limit > 0 ? Math.ceil(total / this.limit) : 1;
+                    this.loadTemplatesFromAPI();
+                    return;
+                }
+
                 this.templateAPIResponse = apiResponse;
                 this.templates = apiResponse?.results as Array<DocTemplate>;
                 this.totalTemplates = apiResponse?.total;
@@ -247,6 +255,7 @@ export class DocapiListComponent implements OnInit, OnDestroy {
      */
     public onPageSizeChange(limit: number): void {
         this.limit = limit;
+        this.page = 1;
         this.loadTemplatesFromAPI();
     }
 
@@ -263,6 +272,7 @@ export class DocapiListComponent implements OnInit, OnDestroy {
             this.filter = undefined;
         }
 
+        this.page = 1;
         this.loadTemplatesFromAPI();
     }
 }

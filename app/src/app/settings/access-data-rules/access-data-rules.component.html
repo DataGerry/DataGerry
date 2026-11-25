@@ -1,0 +1,133 @@
+<h1>Access &amp; Data Rules</h1>
+<hr />
+
+@if (retryAction()) {
+  <div class="sync-retry">
+    <app-warning-alert title="Sync incomplete:" [message]="retryMessage"></app-warning-alert>
+    <app-button label="Retry" icon="fas fa-redo" variant="solid" tone="brand" size="sm" [disabled]="isSaving()"
+      (clicked)="onRetry()"></app-button>
+  </div>
+}
+
+<section class="rules-section" aria-labelledby="person-sync-title">
+  <h2 id="person-sync-title" class="rules-section__title">Person sync</h2>
+
+  <form [formGroup]="form" class="card" novalidate (ngSubmit)="onSave()">
+    <div class="card-body">
+      <app-toggle controlName="active" [id]="'person-sync-active'"
+        label="Person sync (users → persons, synced fields read-only)"></app-toggle>
+      <p class="text-muted small mt-2">
+        Only the base fields (display name, first name, last name, email) and the active state are synced.
+      </p>
+
+      @if (typesLoaded() && !hasPersonTypes()) {
+        <div class="no-person-type mt-3">
+          <app-warning-alert title="No person Type:"
+            message="No Type has the Person special type yet. Create one first.">
+          </app-warning-alert>
+          @if (canAddType) {
+            <a class="dg-button dg-button--link dg-button--brand dg-button--sm" routerLink="/framework/type/add">
+              <i class="fas fa-plus" aria-hidden="true"></i>
+              <span class="dg-button__label">Create a Type</span>
+            </a>
+          }
+        </div>
+      }
+
+      <app-form-select class="d-block mt-3" label="Default person Type" formControlName="default_type_id"
+        bindValue="public_id" bindLabel="label" placeholder="Select a Type..." [items]="typeOptions()">
+      </app-form-select>
+
+      <h3 class="h6 mt-4">Type overrides</h3>
+      <p class="text-muted small">Users whose person lives in another Type than the default one.</p>
+
+      @if (overrides.length) {
+        <div class="override-list" formArrayName="type_overrides">
+          @for (override of overrides.controls; track override; let index = $index) {
+            <div class="override-row" [formGroupName]="index">
+              <app-form-select class="override-row__field" label="User" formControlName="user_id"
+                bindValue="public_id" bindLabel="label" placeholder="Select a user..." [items]="userOptions()"
+                [errorMessage]="override.controls.user_id.touched && override.controls.user_id.invalid ? 'Select a user.' : ''">
+              </app-form-select>
+              <app-form-select class="override-row__field" label="Type" formControlName="type_id"
+                bindValue="public_id" bindLabel="label" placeholder="Select a Type..." [items]="typeOptions()"
+                [errorMessage]="override.controls.type_id.touched && override.controls.type_id.invalid ? 'Select a Type.' : ''">
+              </app-form-select>
+              <app-button icon="fas fa-trash-alt icon-delete" variant="link" tone="danger" size="xs"
+                title="Remove override" ariaLabel="Remove override" (clicked)="onRemoveOverride(index)"></app-button>
+            </div>
+          }
+        </div>
+      }
+
+      <app-button label="Add override" icon="fas fa-plus" variant="outline" tone="neutral" size="sm"
+        (clicked)="onAddOverride()"></app-button>
+    </div>
+
+    <div class="card-footer d-flex justify-content-end">
+      <app-button type="submit" label="Save" variant="solid" tone="brand" [disabled]="form.pristine || isSaving()">
+      </app-button>
+    </div>
+  </form>
+</section>
+
+<section class="rules-section" aria-labelledby="group-sync-title">
+  <h2 id="group-sync-title" class="rules-section__title">Group sync</h2>
+  <app-group-sync-settings [userSyncActive]="stored() ? isStoredActive() : null" (passCompleted)="onGroupPass($event)">
+  </app-group-sync-settings>
+</section>
+
+<div class="rules-actions">
+  <app-button label="Dry run" icon="fas fa-vial" variant="outline" tone="neutral"
+    title="List the persons these settings would move to another Type, without saving"
+    [disabled]="isSaving()" (clicked)="onDryRun()"></app-button>
+  <app-button label="Run sync" icon="fas fa-sync-alt" variant="solid" tone="brand"
+    title="Run the sync again over all users and groups on the saved settings"
+    [disabled]="!isStoredActive() || isSaving()" (clicked)="onRunSync()"></app-button>
+</div>
+
+@if (dryRunRows(); as rows) {
+  <section class="card rules-result" aria-labelledby="dry-run-title" role="status">
+    <div class="card-header">
+      <h2 id="dry-run-title" class="h6 mb-0">Dry run</h2>
+    </div>
+    <div class="card-body">
+      @if (rows.length) {
+        <ul class="dry-run-list">
+          @for (row of rows; track row.person_id) {
+            <li>
+              Person #{{ row.person_id }} of user {{ row.user_label }} moves from Type #{{ row.from_type_id }}
+              to Type #{{ row.to_type_id }}
+              @if (row.blockers.length) {
+                <span class="badge bg-warning text-dark ms-1">Blocked</span>
+                <ul class="dry-run-list__reasons">
+                  @for (blocker of row.blockers; track $index) {
+                    <li>{{ blocker }}</li>
+                  }
+                </ul>
+              }
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="mb-0">No person changes Type with these settings.</p>
+      }
+    </div>
+  </section>
+}
+
+@if (lastPass(); as pass) {
+  <section class="card rules-result" aria-labelledby="sync-pass-title">
+    <div class="card-header">
+      <h2 id="sync-pass-title" class="h6 mb-0">Last sync pass</h2>
+    </div>
+    <div class="card-body">
+      <app-sync-pass-summary [pass]="pass"></app-sync-pass-summary>
+    </div>
+  </section>
+}
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

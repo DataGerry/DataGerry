@@ -54,7 +54,7 @@
     }
 
     @if (wizard.currentStepIndex < totalSteps - 1) {
-    <app-button variant="solid" tone="brand" label="Next Step" icon="fas fa-angle-double-right" iconPosition="end"
+    <app-button variant="soft" tone="brand" label="Next Step" icon="fas fa-angle-double-right" iconPosition="end"
       [disabled]="!isStepValid()" (clicked)="nextStep()"></app-button>
     }
   </div>

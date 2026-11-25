@@ -59,7 +59,7 @@
                             @let isActive = createReportForm.get('mds_mode').value === option.value;
                             <app-button size="sm" [label]="option.label" [variant]="isActive ? 'soft' : 'outline'"
                                 [tone]="isActive ? 'brand' : 'neutral'" [ariaPressed]="isActive"
-                                (clicked)="createReportForm.get('mds_mode').setValue(option.value)">
+                                (clicked)="selectMdsMode(option.value)">
                             </app-button>
                             }
                         </div>
@@ -96,7 +96,7 @@
                     </div>
                 </div>
                 @if (filterBuilderReady) {
-                <app-filter-builder [fields]="fields" [conditions]="conditions"
+                <app-filter-builder [fields]="filterFields" [conditions]="conditions"
                     (conditionsChange)="onConditionsChange($event)"
                     (filterBuilderValidation)="onFilterBuilderValidation($event)">
                 </app-filter-builder>

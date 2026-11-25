@@ -20,7 +20,14 @@ import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import type { Editor as TinyMceEditor } from 'tinymce';
 
-import { DEFAULT_PAGE_MARGINS, PageMargins, parseMarginValue } from '../../../utils/page-margins.util';
+import {
+    A4_PAGE_HEIGHT_MM,
+    A4_PAGE_WIDTH_MM,
+    DEFAULT_PAGE_MARGINS,
+    PageMargins,
+    marginsFitPage,
+    parseMarginValue
+} from '../../../utils/page-margins.util';
 import {
     DocTemplateCoverPage,
     DocTemplatePageSection,
@@ -181,7 +188,15 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         const footerContent = this.form.get('footer_content')?.value;
 
         if (top === null || bottom === null || left === null || right === null) {
+            this.activeTab = 'margins';
             this.validationError = 'Please enter valid margin values (numbers >= 0).';
+            return;
+        }
+
+        if (!marginsFitPage({ top, bottom, left, right })) {
+            this.activeTab = 'margins';
+            this.validationError = `Margins must leave room for content: left + right below ${A4_PAGE_WIDTH_MM} mm, `
+                + `top + bottom below ${A4_PAGE_HEIGHT_MM} mm.`;
             return;
         }
 

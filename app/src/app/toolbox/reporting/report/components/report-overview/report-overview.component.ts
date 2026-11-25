@@ -116,6 +116,14 @@ export class ReportOverviewComponent implements OnInit, OnDestroy {
       .pipe(takeUntil(this.unsubscribe$), finalize(() => this.loaderService.hide()))
       .subscribe({
         next: (response: APIGetMultiResponse<any>) => {
+          const total = response?.total ?? 0;
+          // The page can run past the end after a delete.
+          if (!response?.results?.length && this.page > 1 && total > 0) {
+            this.page = this.limit > 0 ? Math.ceil(total / this.limit) : 1;
+            this.loadReports();
+            return;
+          }
+
           if (response && response.results) {
             this.reports = response.results;
             this.totalReports = response.total || 0;

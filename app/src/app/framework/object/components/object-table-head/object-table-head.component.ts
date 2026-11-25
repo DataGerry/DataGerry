@@ -26,6 +26,7 @@ import { ObjectService } from 'src/app/framework/services/object.service';
 import { catchError, debounceTime, Observable, of, Subject, Subscription, takeUntil } from 'rxjs';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
+import { SYNCED_DELETE_REASON, isSyncDeleteBlocked } from '../../../utils/synced-object.util';
 
 @Component({
     selector: 'cmdb-object-table-head',
@@ -158,7 +159,17 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
   * Gets the tooltip text for the delete selected button.
   */
   public getDeleteSelectedTooltip(): string | null {
-    return this.selectedObjects.length === 0 ? 'No objects selected for deletion' : null;
+    if (this.selectedObjects.length === 0) {
+      return 'No objects selected for deletion';
+    }
+
+    return this.selectionHasSyncedObjects() ? SYNCED_DELETE_REASON : null;
+  }
+
+
+  /** The backend refuses a whole selection holding a synced person or a locked mapped person group. */
+  public selectionHasSyncedObjects(): boolean {
+    return this.selectedObjects.some(result => isSyncDeleteBlocked(result));
   }
 
 

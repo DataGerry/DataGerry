@@ -1,0 +1,55 @@
+@if (isAvailable()) {
+  <section class="person-groups" aria-labelledby="person-groups-title">
+    <div class="person-groups__header">
+      <h4 id="person-groups-title" class="person-groups__title">Person Groups</h4>
+
+      @if (canEdit) {
+        <div class="person-groups__actions">
+          <app-person-picker class="person-groups__picker" placeholder="Select a person group..."
+            ariaLabel="Person group to add" [kinds]="groupKinds" [excludedIds]="memberIds()"
+            [unselectable]="isLockedGroup" [formControl]="addControl">
+          </app-person-picker>
+          <app-button label="Add" icon="fas fa-plus" variant="solid" tone="brand" size="sm"
+            [disabled]="!canAdd()" (clicked)="onAdd()"></app-button>
+        </div>
+      }
+    </div>
+
+    <cmdb-table
+      [id]="'person-groups-table'"
+      [items]="rows()"
+      [columns]="columns()"
+      [totalItems]="rows().length"
+      [pageSize]="rows().length || 10"
+      [searchEnabled]="false"
+      [paginationEnabled]="false"
+      [pageSizeEnabled]="false"
+      [infoEnabled]="false"
+      [sortable]="false"
+      [toggleable]="false"
+      [loadingEnabled]="false"
+      [emptyMessage]="'This person is in no person group.'">
+    </cmdb-table>
+  </section>
+}
+
+<ng-template #nameTemplate let-item="item">
+  <a [routerLink]="['/framework/object/view', item.object_id]">{{ item.label }}</a>
+</ng-template>
+
+<ng-template #statusTemplate let-item="item">
+  @if (item.managed) {
+    <span class="badge text-bg-light border"><i class="fas fa-lock" aria-hidden="true"></i> Managed by user management</span>
+  }
+  @if (item.inactive) {
+    <span class="badge text-bg-secondary">Inactive</span>
+  }
+</ng-template>
+
+<ng-template #actionsTemplate let-item="item">
+  @if (!item.managed) {
+    <app-button icon="fas fa-trash-alt icon-delete" variant="link" tone="danger" size="xs"
+      title="Remove from group" [ariaLabel]="'Remove from ' + item.label" [disabled]="isSaving()"
+      (clicked)="onRemove(item)"></app-button>
+  }
+</ng-template>

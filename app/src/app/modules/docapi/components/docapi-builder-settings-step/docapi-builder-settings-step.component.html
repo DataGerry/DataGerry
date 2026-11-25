@@ -17,7 +17,7 @@
                         aria-describedby="docLabelInputHelp" required>
                     @if (label.invalid && (label.dirty || label.touched)) {
                     <div class="invalid-feedback">
-                        @if (label.errors.required) {
+                        @if (label.errors.required || label.errors.pattern) {
                         <div class="text-end">
                             Label is required
                         </div>
@@ -32,7 +32,7 @@
                     <label class="mb-2" for="docNameInput">Name: <span class="required">*</span></label>
                     <input type="text" formControlName="name" class="form-control name-input-disabled-vibe" [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
                                     'is-invalid': name.invalid && (name.dirty || name.touched) }" id="docNameInput"
-                        disable lowercase required>
+                        readonly lowercase required>
                     <small id="docNameInputHelp" class="form-text text-muted">
                         Template name must be unique
                     </small>
@@ -43,9 +43,9 @@
                             Name is required
                         </div>
                         }
-                        @if (name.errors.nameAlreadyTaken) {
+                        @if (name.errors.docTemplateExists) {
                         <div class="text-end">
-                            A type with this name already exists
+                            A template with this name already exists
                         </div>
                         }
                     </div>

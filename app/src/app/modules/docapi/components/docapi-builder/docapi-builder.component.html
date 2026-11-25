@@ -16,7 +16,7 @@
             ></app-button>
             <app-button
                 label="Next"
-                variant="solid"
+                variant="soft"
                 tone="brand"
                 icon="fas fa-angle-double-right"
                 iconPosition="end"
@@ -33,7 +33,7 @@
         <cmdb-docapi-settings-builder-type-step
             [preData]="docInstance"
             [mode]="mode"
-            (formValidEmitter)="typeStepFormValid = $event"
+            (formValidEmitter)="typeStepValid.set($event)"
             (typeParamReady)="onTypeParamReady()"
         />
         <div class="dg-button-row dg-button-row--between">
@@ -46,11 +46,11 @@
             ></app-button>
             <app-button
                 label="Next"
-                variant="solid"
+                variant="soft"
                 tone="brand"
                 icon="fas fa-angle-double-right"
                 iconPosition="end"
-                [disabled]="!typeStep.isStepValid"
+                [disabled]="!typeStepValid()"
                 (clicked)="nextStep()"
             ></app-button>
         </div>
@@ -76,7 +76,7 @@
             ></app-button>
             <app-button
                 label="Next"
-                variant="solid"
+                variant="soft"
                 tone="brand"
                 icon="fas fa-angle-double-right"
                 iconPosition="end"

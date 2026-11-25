@@ -450,6 +450,10 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
         }
 
         this.editorInstance.setContent(content);
+
+        // setContent fires none of the events the editor's form binding listens to.
+        this.content?.setValue(this.editorInstance.getContent(), { emitModelToViewChange: false });
+        this.content?.markAsDirty();
         this.scheduleHeadingSync(0);
     }
 

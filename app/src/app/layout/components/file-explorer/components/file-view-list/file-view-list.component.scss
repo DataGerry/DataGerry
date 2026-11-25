@@ -29,7 +29,11 @@
   }
 
   .thumbnail {
-    word-break: break-all;
+    max-width: 14rem;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

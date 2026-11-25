@@ -52,6 +52,16 @@ export class DocapiPageTocOptionsComponent {
         5: { 'font-size': 8, 'margin-left': 60, 'margin-top': 2, 'margin-bottom': 2, 'padding-bottom': 1, 'color': '#777777', 'font-style': 'italic', 'font-weight': 'normal' },
     };
 
+    /** Ranges for the numeric inputs; the template binds them, so these also drive the native min/max validators. */
+    public static readonly LIMITS = {
+        'line-height': { label: 'Line spacing', min: 0.6, max: 4 },
+        'font-size': { label: 'text size', min: 1, max: 64 },
+        'margin-top': { label: 'space above', min: 0, max: 120 },
+        'margin-bottom': { label: 'space below', min: 0, max: 120 },
+    };
+
+    public readonly limits = DocapiPageTocOptionsComponent.LIMITS;
+
     private static readonly GENERAL_DEFAULTS = {
         pdftoc: { 'line-height': 1.4 },
     };
@@ -101,6 +111,29 @@ export class DocapiPageTocOptionsComponent {
             .filter((level) => this.tocForm?.get(`table_of_contents_config.level${level}.color`)?.invalid)
             .map((level) => `H${level + 1}`)
             .join(', ');
+    }
+
+
+    /** Out-of-range values block Apply through the native min/max validators, so they are named here. */
+    public get rangeError(): string {
+        const { LIMITS } = DocapiPageTocOptionsComponent;
+        const messages: string[] = [];
+
+        if (this.pdftocGroup?.get('line-height')?.invalid) {
+            const limit = LIMITS['line-height'];
+            messages.push(`${limit.label} must be between ${limit.min} and ${limit.max}.`);
+        }
+
+        for (const level of this.levels) {
+            for (const field of ['font-size', 'margin-top', 'margin-bottom'] as const) {
+                if (this.tocForm?.get(`table_of_contents_config.level${level}.${field}`)?.invalid) {
+                    const limit = LIMITS[field];
+                    messages.push(`H${level + 1} ${limit.label} must be between ${limit.min} and ${limit.max}.`);
+                }
+            }
+        }
+
+        return messages.join(' ');
     }
 
 

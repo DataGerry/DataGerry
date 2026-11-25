@@ -53,13 +53,7 @@ export class ObjectGroupsAddComponent implements OnInit {
   // Category options for the main form
   public categoryOptions: ExtendableOption[] = [];
 
-  // Track previous group type to handle changes
-  private previousGroupType?: string;
-
-  // Cache types for dynamic selection
-  private static allTypes: CmdbType[] | null = null;
   public typeOptions: SelectOption[] = [];
-  public allTypeIds: number[] = [];
   public typesLoaded = false;
 
   ngOnInit(): void {
@@ -76,14 +70,12 @@ export class ObjectGroupsAddComponent implements OnInit {
 
     // Always load categories & types
     this.loadCategories();
-    this.loadTypesIfNeeded();
+    this.loadTypes();
 
     // Only call API if data not passed (fallback)
     if (!state?.group && this.groupId) {
       this.loadGroupToEdit(this.groupId);
     }
-
-    this.previousGroupType = this.group.group_type;
   }
 
 
@@ -130,24 +122,11 @@ export class ObjectGroupsAddComponent implements OnInit {
 
   /* --------------------------- Type Options (STATIC / DYNAMIC) --------------------------- */
 
-  private loadTypesIfNeeded(): void {
-    if (ObjectGroupsAddComponent.allTypes && ObjectGroupsAddComponent.allTypes.length > 0) {
-      this.typeOptions = this.buildTypeOptions(ObjectGroupsAddComponent.allTypes);
-      this.allTypeIds = ObjectGroupsAddComponent.allTypes.map(t => t.public_id);
-      this.typesLoaded = true;
-      return;
-    }
-
+  private loadTypes(): void {
     this.loaderService.show();
 
     const params = {
-      filter:
-        (this.isViewMode &&
-          this.group.group_type === ObjectGroupMode.DYNAMIC &&
-          Array.isArray(this.group.assigned_ids) &&
-          this.group.assigned_ids.length > 0)
-          ? { public_id: { $in: this.group.assigned_ids } }
-          : '',
+      filter: '',
       limit: 0,
       sort: 'sort',
       order: 1,
@@ -159,10 +138,7 @@ export class ObjectGroupsAddComponent implements OnInit {
       .pipe(finalize(() => this.loaderService.hide()))
       .subscribe({
         next: (resp) => {
-          const types = resp.results as CmdbType[];
-          ObjectGroupsAddComponent.allTypes = types;
-          this.typeOptions = this.buildTypeOptions(types);
-          this.allTypeIds = types.map(t => t.public_id);
+          this.typeOptions = this.buildTypeOptions(resp.results as CmdbType[]);
           this.typesLoaded = true;
         },
         error: (err) => this.toast.error(err?.error?.message)
@@ -176,16 +152,9 @@ export class ObjectGroupsAddComponent implements OnInit {
     }));
   }
 
-  /**
-   * Called when the user manually changes the group type radio.
-   * We no longer reset assigned_ids here, so that editing an existing group
-   * will show the previously saved objects or type IDs.
-   */
+  /** A radio only fires change when it becomes checked, so the type really switched. */
   public onGroupTypeChange(): void {
-    if (this.group.group_type !== this.previousGroupType) {
-      this.group.assigned_ids = [];
-      this.previousGroupType = this.group.group_type;
-    }
+    this.group.assigned_ids = [];
   }
 
   /** Handler for object selector's selection change (STATIC case) */

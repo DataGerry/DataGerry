@@ -13,6 +13,9 @@
   </div>
 }
   @case (MODES.EDIT) {
+@if (!fieldChanges.length) {
+  <p class="field-diff__none">No field changes</p>
+}
 <dl class="field-diff">
     @for (change of fieldChanges; track change.name) {
       <div class="field-diff__row">

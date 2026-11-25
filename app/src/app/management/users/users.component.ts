@@ -86,6 +86,8 @@ export class UsersComponent implements OnInit, OnDestroy {
    */
   @ViewChild('dateTemplate', { static: true }) public dateTemplate: TemplateRef<any>;
 
+  @ViewChild('userNameTemplate', { static: true }) public userNameTemplate: TemplateRef<any>;
+
   /**
    * Password modal
    */
@@ -172,7 +174,8 @@ export class UsersComponent implements OnInit, OnDestroy {
         name: 'user_name',
         data: 'user_name',
         searchable: true,
-        sortable: true
+        sortable: true,
+        template: this.userNameTemplate
       },
       {
         display: 'Firstname',

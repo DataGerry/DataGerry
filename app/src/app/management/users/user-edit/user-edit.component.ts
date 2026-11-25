@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { Component, OnDestroy, OnInit, ViewChild, inject } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
@@ -27,6 +27,7 @@ import { PermissionService } from '../../../modules/auth/services/permission.ser
 import { UserFormComponent } from '../components/user-form/user-form.component';
 import { Group } from '../../models/group';
 import { User } from '../../models/user';
+import { LoaderService } from 'src/app/core/services/loader.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -56,6 +57,8 @@ export class UserEditComponent implements OnInit, OnDestroy {
     private typeEditRightName = 'base.framework.type.edit';
     public typeEditRight = this.permissionService.hasRight(this.typeEditRightName) ||
                            this.permissionService.hasExtendedRight(this.typeEditRightName);
+
+    public isLoading$ = inject(LoaderService).isLoading$;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
