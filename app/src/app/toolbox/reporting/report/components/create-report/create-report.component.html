@@ -39,7 +39,7 @@
         <!-- Filter Builder Component -->
         @if (filterBuilderReady) {
         <div>
-            <app-filter-builder [fields]="fields" [conditions]="conditions"
+            <app-filter-builder [fields]="filterFields" [conditions]="conditions"
                 (conditionsChange)="onConditionsChange($event)"
                 (filterBuilderValidation)="onFilterBuilderValidation($event)">
             </app-filter-builder>

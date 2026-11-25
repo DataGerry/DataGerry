@@ -46,6 +46,8 @@ export class CreateReportComponent implements OnInit, OnDestroy {
     public categories = [];
     public types = [];
     public fields = [];
+    /** Reference fields can't be selected as columns but can still be filtered on. */
+    public filterFields = [];
     public typeLoading = false;
     private unsubscribe$ = new ReplaySubject<void>(1);
     public conditions: any = {};
@@ -182,16 +184,17 @@ export class CreateReportComponent implements OnInit, OnDestroy {
                     .map((section) => `${section.name}-field`)
             );
 
-            this.fields = selectedType.fields.filter((field) =>
+            this.filterFields = selectedType.fields.filter((field) =>
                 // If render_meta sections are available, only include fields that belong to non-ref sections.
                 (nonRefSectionFieldNames.size === 0 || nonRefSectionFieldNames.has(field?.name)) &&
-                field?.type !== 'ref' &&
                 field?.type !== 'ref-section-field' &&
                 !refSectionFieldNames.has(field?.name)
             );
+            this.fields = this.filterFields.filter((field) => field?.type !== 'ref');
             this.filterBuilderReady = true;
         } else {
             this.fields = [];
+            this.filterFields = [];
             this.filterBuilderReady = false;
         }
     }
