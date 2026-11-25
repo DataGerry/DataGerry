@@ -23,6 +23,8 @@ A rack editor - the rack rights and the object view/edit rights - whose group th
   - the overview keeps an unreadable member's row - its slots are occupied - with its summary line and type label
     blank, and tallies its type under a blank legend entry; the height-conflict pre-check reports it the same way
   - an administrator still sees every name
+
+Every ACL seeded or changed is also stored as the access rules it translates to
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -54,6 +56,9 @@ from tests.functional.framework.test_functional_rack_locations import (  # noqa:
     _ipam_licensed,
     _seed_types,
     fixture_collections,
+)
+from tests.utils.type_access_seed import (
+    SeededAccess, remove_type_access, remove_type_access_of_types, store_type_access,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -95,11 +100,13 @@ def fixture_editor(collections, database_manager: MongoDatabaseManager, database
         groups.delete_many({'public_id': EDITOR_GROUP_ID})
         users.delete_many({'public_id': EDITOR_ID})
         types.update_one({'public_id': RACK_TYPE_ID}, {'$set': {'acl': OPEN_ACL}})
+        remove_type_access_of_types(database_manager.connector.client[database_name], [HIDDEN_TYPE_ID, RACK_TYPE_ID])
 
     _purge()
     hidden_type: dict[str, Any] = _type_doc(HIDDEN_TYPE_ID, 'rack-acl-hidden-member', True)
     hidden_type['acl'] = ADMIN_ONLY_ACL
     types.insert_one(hidden_type)
+    store_type_access(database_manager.connector.client[database_name], [HIDDEN_TYPE_ID])
     hidden_object: dict[str, Any] = _object_doc(HIDDEN_OBJECT_ID, WITH_LOCATION_TYPE_ID, HIDDEN_NAME, None)
     hidden_object['type_id'] = HIDDEN_TYPE_ID
     objects.insert_one(hidden_object)
@@ -159,12 +166,15 @@ class TestThePicker:
         types.insert_one(hidden_rack_type | {'public_id': HIDDEN_RACK_TYPE_ID, 'name': 'rack-acl-hidden-rack',
                                              'acl': ADMIN_ONLY_ACL})
         objects.update_one({'public_id': OTHER_RACK_ID}, {'$set': {'type_id': HIDDEN_RACK_TYPE_ID}})
+        access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                                 [HIDDEN_RACK_TYPE_ID])
 
         try:
             response = rest_api.get(f'{RACKS_URL}/{RACK_ID}/assignable_objects/', query_string={'limit': 0},
                                     user=editor)
             row = next(row for row in response.get_json()['results'] if row['public_id'] == MEMBER_WITH_FIELD_ID)
         finally:
+            remove_type_access(database_manager.connector.client[database_name], access)
             objects.update_one({'public_id': OTHER_RACK_ID}, {'$set': {'type_id': RACK_TYPE_ID}})
             types.delete_many({'public_id': HIDDEN_RACK_TYPE_ID})
 
@@ -178,6 +188,7 @@ class TestThePicker:
         database_manager.get_collection(CmdbType.COLLECTION, database_name).update_one(
             {'public_id': RACK_TYPE_ID}, {'$set': {'acl': ADMIN_ONLY_ACL}},
         )
+        store_type_access(database_manager.connector.client[database_name], [RACK_TYPE_ID])
 
         response = rest_api.get(f'{RACKS_URL}/{RACK_ID}/assignable_objects/', user=editor)
 

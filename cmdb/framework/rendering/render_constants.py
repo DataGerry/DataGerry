@@ -158,7 +158,10 @@ class RenderTypeInfoKey(BaseStrEnum):
         ICON: The type's render_meta icon, or an empty string when it has none
         ACTIVE: The type's active flag
         VERSION: The type's version string
-        ACL: The type's serialised AccessControlList
+        ACL: The type's ``acl`` block as the access rules decide it (``access_engine.synthesised_acl_values``), not
+            the stored block, which decides nothing
+        ALLOWED_OPERATIONS: What the render user may do with objects of the type - ``view`` / ``create`` / ``edit`` /
+            ``delete`` as the access engine allows; what a client shows or hides its actions by
         SELECTABLE_AS_PARENT: Whether objects of this type may be a CmdbLocation parent
         USES_PORTS: Whether objects of this type may carry physical ports (Port Connectivity)
         PORT_SECTION_INDEX: Where the ports section is drawn among the type's sections (0 = first).
@@ -174,6 +177,7 @@ class RenderTypeInfoKey(BaseStrEnum):
     ACTIVE = 'active'
     VERSION = 'version'
     ACL = 'acl'
+    ALLOWED_OPERATIONS = 'allowed_operations'
     SELECTABLE_AS_PARENT = 'selectable_as_parent'
     USES_PORTS = 'uses_ports'
     PORT_SECTION_INDEX = 'port_section_index'

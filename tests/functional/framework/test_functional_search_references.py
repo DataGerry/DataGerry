@@ -41,6 +41,7 @@ from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID, USER_GROUP_I
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 SEARCH_URL: str = '/search/'
@@ -107,7 +108,10 @@ def _object_doc(public_id: int, rows: list[dict[str, Any]], type_id: int = OPEN_
 
 @pytest.fixture(autouse=True)
 def _seed(database_manager: MongoDatabaseManager, database_name: str):
-    """Seeds an open and a hidden type, the objects and a user of the default group; removes them after."""
+    """
+    Seeds an open and a hidden type (with the access rules their ACLs translate to), the objects and a user of the
+    default group; removes them after.
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
     users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
@@ -138,7 +142,10 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
     ])
     users.insert_one({'public_id': SEARCH_USER_ID, 'user_name': 'search-refs-user', 'active': True,
                       'group_ids': [USER_GROUP_ID], 'registration_time': datetime.now(timezone.utc)})
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [OPEN_TYPE_ID, HIDDEN_TYPE_ID])
     yield
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

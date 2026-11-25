@@ -203,6 +203,14 @@ def test_to_json_wraps_a_failure() -> None:
         CmdbType.to_json({'public_id': PUBLIC_ID})
 
 
+def test_an_acl_key_that_is_no_group_id_does_not_fail_the_type() -> None:
+    """The type loads; the key is left out of its ACL, the group keys beside it stay"""
+    stored_acl: dict[str, Any] = {'activated': True, 'groups': {'includes': {'admin': ['READ'], '2': ['UPDATE']}}}
+    acl_dict = CmdbType.to_json(_type(**{TypeSchemaKey.ACL.value: stored_acl}))[TypeSchemaKey.ACL.value]
+
+    assert acl_dict == {'activated': True, 'groups': {'includes': {'2': ['UPDATE']}}}
+
+
 def test_from_data_and_to_json_round_trip() -> None:
     """
     The two halves agree on every key name

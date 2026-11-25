@@ -22,8 +22,8 @@ the type was exported from and mean nothing here.
 `normalize_imported_type` runs all of them, on the create and the update path alike, after the rules
 in `importer_type_rules` have passed and before the entry is written
 
-Three of them read the database - cross-type references, ACL groups and global section templates -
-each with a single query per entry
+Two of them read the database - cross-type references and global section templates - each with a single
+query per entry. An uploaded ``acl`` is replaced by the default block: access is managed through the access rules
 """
 from typing import Any
 from logging import Logger, getLogger
@@ -39,7 +39,6 @@ from cmdb.models.type_model import (
     SectionKey,
     SectionReferenceKey,
 )
-from cmdb.models.group_model import CmdbUserGroup
 from cmdb.utils import coerce_whole_number, random_hex_color, is_non_blank_string
 from cmdb.framework.ci_explorer.label_field import label_field_error
 from cmdb.framework.section_templates.global_template_reconcile import (
@@ -50,7 +49,6 @@ from cmdb.framework.section_templates.global_template_reconcile import (
     resolve_global_templates,
 )
 from cmdb.framework.object_field_value_rules import find_default_value_errors
-from cmdb.security.acl.acl_constants import AclKey
 from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.models.type_model.type_structure_rules import TypeStructure, read_type_structure
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
@@ -95,7 +93,9 @@ def apply_type_defaults(type_entry: Any) -> None:
     * `ci_explorer_label` - None, i.e. the CI Explorer draws its nodes with no label until a field is
       nominated (a nomination the upload DOES bring is checked by clear_dangling_ci_explorer_label)
     * `ci_explorer_color` - a random '#RRGGBB' color, so the type is distinguishable in the graph
-    * `acl` - the "no access control" ACL every newly created type starts with
+    * `acl` - always the default block, whatever the upload carries: another system's ACL names its groups, and
+      access here is managed through the access rules. On the update path the stored block wins: the field is in
+      IMPORT_UPDATE_PRESERVED_FIELDS
 
     Args:
         type_entry (Any): A single entry of the uploaded payload, modified in place
@@ -114,8 +114,7 @@ def apply_type_defaults(type_entry: Any) -> None:
     if not type_entry.get(TypeSchemaKey.CI_EXPLORER_COLOR.value):
         type_entry[TypeSchemaKey.CI_EXPLORER_COLOR.value] = random_hex_color()
 
-    if not type_entry.get(TypeSchemaKey.ACL.value):
-        type_entry[TypeSchemaKey.ACL.value] = AccessControlList.default_json()
+    type_entry[TypeSchemaKey.ACL.value] = AccessControlList.default_json()
 
 
 def apply_port_section_index_default(type_entry: Any) -> None:
@@ -348,108 +347,6 @@ def clear_dangling_type_references(type_entry: Any, types_manager: TypesManager)
     return sorted(dangling)
 
 
-def clear_dangling_acl_groups(type_entry: Any, types_manager: TypesManager) -> list[Any]:
-    """
-    Drops ACL entries naming a CmdbUserGroup that does not exist on this system, in place
-
-    `acl.groups.includes` is keyed by group public_id, and those ids belong to the system the type was
-    exported from. Left as they are, an entry would silently grant (or withhold) access to whichever
-    group happens to hold that id here - a permission decision nobody made. Unresolvable ids are
-    therefore dropped; the groups that do exist keep their permissions
-
-    Args:
-        type_entry (Any): A single entry of the uploaded payload, modified in place
-        types_manager (TypesManager): Manager used to read the groups collection
-
-    Raises:
-        BaseManagerGetError: If the group lookup fails
-
-    Returns:
-        list[Any]: The dropped group keys, sorted (empty when every group resolved)
-    """
-    if not isinstance(type_entry, dict):
-        return []
-
-    acl = type_entry.get(TypeSchemaKey.ACL.value)
-    groups = acl.get(AclKey.GROUPS.value) if isinstance(acl, dict) else None
-    includes = groups.get(AclKey.INCLUDES.value) if isinstance(groups, dict) else None
-
-    if not isinstance(includes, dict) or not includes:
-        return []
-
-    # The keys are group public_ids, stringified by JSON / BSON; anything unparsable cannot resolve
-    wanted: dict[Any, int] = {}
-
-    for key in includes:
-        try:
-            wanted[key] = int(key)
-        except (TypeError, ValueError):
-            wanted[key] = -1  # never a public_id, so the entry is dropped below
-
-    existing_rows = types_manager.get_many_from_other_collection(
-        CmdbUserGroup.COLLECTION,
-        criteria={TypeSchemaKey.PUBLIC_ID.value: {'$in': sorted(set(wanted.values()))}},
-    )
-    existing_ids = {row.get(TypeSchemaKey.PUBLIC_ID.value) for row in existing_rows}
-    dangling = sorted(str(key) for key, group_id in wanted.items() if group_id not in existing_ids)
-
-    if not dangling:
-        return []
-
-    for key in list(includes):
-        if wanted[key] not in existing_ids:
-            includes.pop(key)
-
-    LOGGER.info(
-        "[clear_dangling_acl_groups] Dropped ACL entries for unknown group(s) %s while importing '%s'",
-        dangling, type_entry.get(TypeSchemaKey.NAME.value),
-    )
-
-    return dangling
-
-
-def deactivate_empty_acl(type_entry: Any) -> bool:
-    """
-    Switches an access control list that grants nothing off, in place
-
-    An ACL with `activated: true` and no group in `includes` denies EVERY group: `has_access_control`
-    asks the list whether the user's groups are granted the permission, and an empty list answers no to
-    all of them. A Type imported that way would be invisible to everyone. That state is reached
-    without anybody deciding it - either the upload already carried it, or
-    `clear_dangling_acl_groups` just dropped the last grant because it named a group of the exporting
-    system - so the list is switched off instead, which is what "no access rules" means everywhere
-    else in DataGerry
-
-    Args:
-        type_entry (Any): A single entry of the uploaded payload, modified in place
-
-    Returns:
-        bool: True when the ACL was switched off, False when it was left as it is
-    """
-    if not isinstance(type_entry, dict):
-        return False
-
-    acl = type_entry.get(TypeSchemaKey.ACL.value)
-
-    if not isinstance(acl, dict) or not acl.get(AclKey.ACTIVATED.value):
-        return False
-
-    groups = acl.get(AclKey.GROUPS.value)
-    includes = groups.get(AclKey.INCLUDES.value) if isinstance(groups, dict) else None
-
-    if includes:
-        return False
-
-    acl[AclKey.ACTIVATED.value] = False
-
-    LOGGER.info(
-        "[deactivate_empty_acl] Switched off the access control list of '%s': it granted no group",
-        type_entry.get(TypeSchemaKey.NAME.value),
-    )
-
-    return True
-
-
 def reconcile_global_templates(
     type_entry: Any,
     section_templates_manager: SectionTemplatesManager,
@@ -526,18 +423,17 @@ def normalize_imported_type(
 
     Repairs are the counterpart of the validation rules: they cover the parts of an upload that say
     nothing about its quality, so refusing the entry would only get in the way. Both are applied on
-    the create and the update path. The three that consult the database (cross-type references, ACL
-    groups, global section templates) all clean up ids and names that belonged to the system the type
-    was exported from
+    the create and the update path. The two that consult the database (cross-type references, global
+    section templates) clean up ids and names that belonged to the system the type was exported from
 
     Args:
         type_entry (Any): A single entry of the uploaded payload, modified in place
-        types_manager (TypesManager): Manager used to resolve cross-type references and ACL groups
+        types_manager (TypesManager): Manager used to resolve cross-type references
         section_templates_manager (SectionTemplatesManager): Manager used to resolve global templates
 
     Raises:
         TypesManagerGetError: If the reference existence lookup fails
-        BaseManagerGetError: If the group or template lookup fails
+        BaseManagerGetError: If the template lookup fails
 
     Returns:
         str | None: The one refusal a repair can raise - a field the template does not own inside a claimed
@@ -547,8 +443,6 @@ def normalize_imported_type(
     apply_port_section_index_default(type_entry)
     apply_render_meta_defaults(type_entry)
     clear_dangling_type_references(type_entry, types_manager)
-    clear_dangling_acl_groups(type_entry, types_manager)
-    deactivate_empty_acl(type_entry)
     template_conflict: str | None = reconcile_global_templates(type_entry, section_templates_manager)
 
     if template_conflict:

@@ -35,6 +35,7 @@ from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.type_model import CmdbType, FieldKey, FieldType, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.manager.types_manager import TypesManager
+from cmdb.security.acl.acl_constants import AclKey
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager import (
     BaseManagerDeleteError,
@@ -52,12 +53,15 @@ from cmdb.errors.manager.types_manager import (
     TypesManagerIterationError,
 )
 from cmdb.errors.models.cmdb_type import CmdbTypeInitFromDataError, CmdbTypeToJsonError
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=protected-access
 
 MGR_PATH: str = 'cmdb.manager.types_manager'
 
 TYPE_ID: int = 42
+# A Type whose activated ACL grants no group - denied to every user
+LOCKED_TYPE_ID: int = 43
 
 # A wrapper value object_hook cannot decode - the caller's error, not a bug
 UNDECODABLE_OID: dict[str, str] = {'$oid': 'not-an-object-id'}
@@ -114,16 +118,17 @@ def test_iterate_without_a_permission_adds_no_access_control_criteria() -> None:
 
 
 def test_iterate_with_a_user_and_permission_restricts_to_the_permitted_types() -> None:
-    """The group's permitted-types criteria is merged in before the query runs."""
+    """The user's permitted-types criteria is merged in before the query runs - asked for the user itself."""
     mgr = _manager()
     mgr.iterate_query.return_value = ([], 0)
     builder_params = MagicMock()
+    user = SimpleNamespace(group_ids=[3])
 
     with patch(f'{MGR_PATH}.IterationResult'), \
          patch(f'{MGR_PATH}.build_permitted_types_criteria', return_value={'acl': 'criteria'}) as criteria:
-        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_ids=[3]), AccessControlPermission.READ)
+        TypesManager.iterate(mgr, builder_params, user, AccessControlPermission.READ)
 
-    criteria.assert_called_once_with([3], AccessControlPermission.READ)
+    criteria.assert_called_once_with(user, AccessControlPermission.READ)
     builder_params.add_criteria.assert_called_once_with({'acl': 'criteria'})
 
 
@@ -133,30 +138,34 @@ def test_iterate_passes_several_permissions_through_to_the_criteria() -> None:
     mgr.iterate_query.return_value = ([], 0)
     builder_params = MagicMock()
     asked = [AccessControlPermission.READ, AccessControlPermission.CREATE]
+    user = SimpleNamespace(group_ids=[3])
 
     with patch(f'{MGR_PATH}.IterationResult'), \
          patch(f'{MGR_PATH}.build_permitted_types_criteria', return_value={'acl': 'criteria'}) as criteria:
-        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_ids=[3]), asked)
+        TypesManager.iterate(mgr, builder_params, user, asked)
 
-    criteria.assert_called_once_with([3], asked)
+    criteria.assert_called_once_with(user, asked)
 
 
-def test_iterate_applies_the_access_control_to_the_criteria_not_the_pipeline() -> None:
+def test_iterate_applies_the_access_control_to_the_criteria_not_the_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     The rule goes into the criteria both aggregations read
 
     ``iterate_query`` builds its total from the criteria alone, so an access rule that lived only in
     the data pipeline would filter the rows and leave the count beside them unfiltered - the bug
-    the object listing records separately.
+    the object listing records separately. The access engine answers from one locked Type, so its exclusion is
+    what reaches the criteria.
     """
     mgr = _manager()
     mgr.iterate_query.return_value = ([], 0)
     builder_params = MagicMock()
+    decide_by_type_acls(monkeypatch, [{TypeSchemaKey.PUBLIC_ID.value: LOCKED_TYPE_ID, TypeSchemaKey.ACL.value: {
+        AclKey.ACTIVATED.value: True, AclKey.GROUPS.value: {AclKey.INCLUDES.value: {}}}}])
 
     with patch(f'{MGR_PATH}.IterationResult'):
         TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_ids=[3]), AccessControlPermission.READ)
 
-    builder_params.add_criteria.assert_called_once()
+    builder_params.add_criteria.assert_called_once_with({TypeSchemaKey.PUBLIC_ID.value: {'$nin': [LOCKED_TYPE_ID]}})
     assert mgr.iterate_query.call_args.args == (builder_params,)
 
 

@@ -40,13 +40,14 @@ from cmdb.framework.person_sync.sync_settings import (
 
 DEFAULT_TYPE_ID: int = 21
 OVERRIDE_TYPE_ID: int = 22
+GROUP_TYPE_ID: int = 23
 FIRST_USER_ID: int = 3
 SECOND_USER_ID: int = 9
 
 CONFIGURED: PersonSyncSettings = PersonSyncSettings(
     users=UserSyncSettings(active=True, default_type_id=DEFAULT_TYPE_ID,
                            type_overrides={SECOND_USER_ID: OVERRIDE_TYPE_ID, FIRST_USER_ID: OVERRIDE_TYPE_ID}),
-    groups=GroupSyncSettings(active=True),
+    groups=GroupSyncSettings(active=True, default_type_id=GROUP_TYPE_ID),
 )
 CONFIGURED_DOCUMENT: dict[str, Any] = {
     'users': {
@@ -57,7 +58,7 @@ CONFIGURED_DOCUMENT: dict[str, Any] = {
             {'user_id': SECOND_USER_ID, 'type_id': OVERRIDE_TYPE_ID},
         ],
     },
-    'groups': {'active': True},
+    'groups': {'active': True, 'default_type_id': GROUP_TYPE_ID},
 }
 
 

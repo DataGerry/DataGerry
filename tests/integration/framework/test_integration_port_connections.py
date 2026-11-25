@@ -76,6 +76,7 @@ from cmdb.models.port_connection_model import (
     ENDPOINTS_INTERNAL_INDEX_NAME,
 )
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 # Several tests take the 'connections' fixture purely for its side effect - it builds the declared
 # indexes and clears the collection - and never touch the handle it yields
@@ -973,7 +974,10 @@ CABLE_CI_TYPE_ID: int = 48001
 
 @pytest.fixture(name='cable_type_denied')
 def fixture_cable_type_denied(database_manager: MongoDatabaseManager, database_name: str, full_access_user):
-    """The Cable CIs' type, with READ granted only to a group the user is not in; removed after"""
+    """
+    The Cable CIs' type, with READ granted only to a group the user is not in - also as the access rules the ACL
+    translates to; removed after
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     types.delete_many({'public_id': CABLE_CI_TYPE_ID})
     cable_type: dict[str, Any] = make_type_doc(CABLE_CI_TYPE_ID, 'cable-acl-integration')
@@ -982,8 +986,11 @@ def fixture_cable_type_denied(database_manager: MongoDatabaseManager, database_n
     }
     types.insert_one(cable_type)
 
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], [CABLE_CI_TYPE_ID])
+
     yield full_access_user
 
+    remove_type_access(database_manager.connector.client[database_name], access)
     types.delete_many({'public_id': CABLE_CI_TYPE_ID})
 
 

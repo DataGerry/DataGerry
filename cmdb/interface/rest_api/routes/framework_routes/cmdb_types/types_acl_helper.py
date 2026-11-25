@@ -14,48 +14,101 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The CmdbUserGroups a CmdbType's access control list names must exist
+A type write may carry its ``acl`` only unchanged - access is managed through the access rules
 
-``acl.groups.includes`` is keyed by CmdbUserGroup public_id. An entry for a group that does not exist grants nobody,
-so an activated list made only of such entries locks the type - and its objects - for everyone, administrators
-included. The type write routes refuse such an entry (``abort_if_unknown_acl_groups``); the type importer drops it
-instead (``importer_type_repairs.clear_dangling_acl_groups``), since another installation's group ids mean nothing
-here, and a group delete takes the group's entries out of every type ACL (``group_usage_helper``)
+The stored ``acl`` decides nothing since the access engine does, and every answer shows the block the access rules
+decide (``types_operations_helper.with_synthesised_acl``). A client sending a Type back (the type builder sends the
+whole document) is accepted when its ``acl`` means what that answer meant: on a create the default block, on an update
+the synthesised one. Any other ``acl`` is refused (400) - it would change nothing and say otherwise. What is stored is
+the server's: a new Type stores the default block, an updated one keeps its stored block (written back as the model
+normalises it)
+
+Two blocks mean the same when both are switched off, or both are switched on and each group holds the same
+permissions - the order of the permissions, a group listed with none, and the groups of a switched-off block do not
+count
 """
 from typing import Any
 
-from cmdb.manager import GroupsManager
+from flask import abort
+
+from cmdb.framework.access_engine import synthesised_acl_values
+from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
-from cmdb.security.acl.acl_groups import acl_group_ids
-from cmdb.interface.rest_api.routes.routes_helper import abort_on_unknown_references
-from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import USER_GROUP_LABEL
+from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.access_control_list import AccessControlList
+from cmdb.security.acl.acl_constants import AclKey
+from cmdb.security.acl.acl_groups import group_permissions
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    TYPE_ACL_MANAGED_ELSEWHERE_MESSAGE,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = ['abort_if_unknown_acl_groups']
+__all__ = ['acl_meaning', 'guard_created_acl', 'guard_updated_acl']
+
+AclMeaning = tuple[bool, dict[int, frozenset[str]]]
 
 
-def abort_if_unknown_acl_groups(type_data: dict[str, Any], groups_manager: GroupsManager,
-                                stored_acl: Any = None) -> None:
+def acl_meaning(acl: Any) -> AclMeaning:
     """
-    Refuses a type write whose ``acl`` names a CmdbUserGroup that does not exist
-
-    An entry for a group that does not exist grants nobody, so an activated list made only of such entries locks
-    the type for everyone. On an update only the groups the stored list does not already name are judged: an entry
-    for a missing group that the stored list already carries is inert, and refusing it would make the type
-    unsaveable over an entry the editor may not even be shown. The type importer drops unknown entries instead
-    (``importer_type_repairs.clear_dangling_acl_groups``) - another installation's group ids mean nothing here
+    What an ``acl`` block means: whether it is switched on and, when it is, what each group holds
 
     Args:
-        type_data (dict[str, Any]): The type payload, already shape-checked by the write schema
-        groups_manager (GroupsManager): Answers which groups exist, in one read
-        stored_acl (Any): The stored type's ``acl`` on an update; None on a create
+        acl (Any): The block as sent or answered
+
+    Returns:
+        AclMeaning: ``(activated, {group: permissions})`` - only groups holding a permission, nothing when switched off
+    """
+    if not isinstance(acl, dict) or acl.get(AclKey.ACTIVATED.value) is not True:
+        return False, {}
+
+    return True, {group_id: frozenset(values) for group_id, values in group_permissions(acl).items() if values}
+
+
+def abort_if_acl_changed(data: dict[str, Any], answered: dict[str, Any]) -> None:
+    """
+    Refuses a payload whose ``acl`` means something else than the block its Type answers with
+
+    Args:
+        data (dict[str, Any]): The type payload; no ``acl`` sends nothing to judge
+        answered (dict[str, Any]): The block the Type answers with
 
     Raises:
-        HTTPException: 400 naming the group ids that do not exist
+        HTTPException: 400 when the meanings differ
     """
-    named: set[int] = set(acl_group_ids(type_data.get(TypeSchemaKey.ACL.value)))
+    if TypeSchemaKey.ACL.value in data and acl_meaning(data[TypeSchemaKey.ACL.value]) != acl_meaning(answered):
+        abort(400, TYPE_ACL_MANAGED_ELSEWHERE_MESSAGE)
 
-    if stored_acl is not None:
-        named -= set(acl_group_ids(stored_acl))
 
-    abort_on_unknown_references(groups_manager, sorted(named), USER_GROUP_LABEL)
+def guard_created_acl(data: dict[str, Any]) -> None:
+    """
+    Accepts a new Type's ``acl`` only when it means the default, then stores the default block
+
+    Args:
+        data (dict[str, Any]): The create payload, changed in place
+
+    Raises:
+        HTTPException: 400 when the payload's ``acl`` means something else
+    """
+    default: dict[str, Any] = AccessControlList.default_json()
+    abort_if_acl_changed(data, default)
+    data[TypeSchemaKey.ACL.value] = default
+
+
+def guard_updated_acl(data: dict[str, Any], old_type: CmdbType, request_user: CmdbUser) -> None:
+    """
+    Accepts an update's ``acl`` only when it means the block the Type answers with, then keeps the stored block
+
+    Args:
+        data (dict[str, Any]): The update payload, changed in place
+        old_type (CmdbType): The stored Type
+        request_user (CmdbUser): The caller - it names the tenant whose access rules decide
+
+    Raises:
+        HTTPException: 400 when the payload's ``acl`` means something else
+        AccessAssignmentsManagerGetError | ScopeRolesManagerGetError: When the access rules could not be read
+    """
+    if TypeSchemaKey.ACL.value in data:
+        answered: dict[str, Any] = synthesised_acl_values(request_user, [old_type.public_id])[old_type.public_id]
+        abort_if_acl_changed(data, answered)
+
+    data[TypeSchemaKey.ACL.value] = AccessControlList.to_json(old_type.acl)

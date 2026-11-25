@@ -41,6 +41,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from cmdb.framework import access_engine
 from cmdb.framework.ci_explorer.context import CiExplorerGraphRequest, CiExplorerManagers
 from cmdb.framework.ci_explorer.connections import ConnectionNeighbour
 from cmdb.framework.ci_explorer.graph import (
@@ -60,8 +61,8 @@ from cmdb.framework.ci_explorer.ipam import IpamEdgeCategory, IpamNeighbour
 from cmdb.models.ci_explorer_model import NodeType
 from cmdb.errors.ci_explorer import CiExplorerGraphBuildError, CiExplorerTargetNotFoundError
 from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
-from cmdb.security.acl.helpers import has_type_document_access
 from cmdb.security.acl.permission import AccessControlPermission
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.framework.ci_explorer.graph'
@@ -117,23 +118,16 @@ def _object_relation(child_id: int = NEIGHBOUR_ID) -> dict[str, Any]:
 
 
 def _types_find(types: list[dict[str, Any]]):
-    """
-    Answers framework.types reads from the given documents, the up-front denied-types query included
-
-    That query is the one read with a projection: it is answered by the real ACL rule applied to the documents, for
-    the group its criteria names - so a test states its types once and both ACL passes see the same truth
-    """
-    def _find(criteria: dict[str, Any] | None = None, projection: dict[str, Any] | None = None, **_kwargs: Any):
-        if projection is None:
-            return types
-
-        group_key: str = next(iter(criteria['$and'][1]['$nor'][0]))
-        group = SimpleNamespace(group_ids=[int(group_key.rsplit('.', 1)[-1])], public_id=1)
-
-        return [{'public_id': document['public_id']} for document in types
-                if not has_type_document_access(document, group, AccessControlPermission.READ)]
+    """Answers framework.types reads from the given documents"""
+    def _find(**_kwargs: Any) -> list[dict[str, Any]]:
+        return types
 
     return _find
+
+
+def _denied_type_ids(user: Any, permission: AccessControlPermission) -> list[int]:
+    """The Types manager's denial, asked of the access engine as the real manager does"""
+    return access_engine.denied_type_ids(user, access_engine.permission_operations(permission))
 
 
 def _managers(
@@ -143,6 +137,7 @@ def _managers(
     linked_objects: list[dict[str, Any]] | None = None,
     types: list[dict[str, Any]] | None = None,
     location: dict[str, Any] | None = None,
+    monkeypatch: pytest.MonkeyPatch | None = None,
 ) -> CiExplorerManagers:
     """
     Builds a manager bundle whose reads answer the given documents
@@ -154,6 +149,8 @@ def _managers(
         linked_objects (list | None): The neighbour CmdbObjects
         types (list | None): The CmdbType documents of every object in scope
         location (dict | None): The dg_location of the target, if any
+        monkeypatch (pytest.MonkeyPatch | None): When given, the access engine answers from the types' ACLs - so a
+            test states its types once and both the up-front denial and the per-object pass see the same truth
 
     Returns:
         CiExplorerManagers: The bundle, with every manager a MagicMock
@@ -165,7 +162,12 @@ def _managers(
     objects_manager.find.return_value = linked_objects if linked_objects is not None else []
     object_relations_manager.find.return_value = object_relations or []
     relations_manager.find.return_value = relations or []
-    types_manager.find.side_effect = _types_find(types if types is not None else [_type_doc()])
+    type_documents: list[dict[str, Any]] = types if types is not None else [_type_doc()]
+    types_manager.find.side_effect = _types_find(type_documents)
+    types_manager.get_denied_type_ids.side_effect = _denied_type_ids
+
+    if monkeypatch is not None:
+        decide_by_type_acls(monkeypatch, type_documents)
     locations_manager.get_location_for_object.return_value = location
     locations_manager.find.return_value = []
 
@@ -806,9 +808,10 @@ class TestTheObjectAclFiltersEverySource:
     grafts its neighbours through a different branch.
     """
 
-    def test_a_denied_relation_neighbour_is_omitted(self) -> None:
+    def test_a_denied_relation_neighbour_is_omitted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The neighbour and its edge go together - an edge to a node that is not there draws nothing."""
         managers = _managers(
+            monkeypatch=monkeypatch,
             object_relations=[_object_relation()],
             relations=[_relation_doc()],
             linked_objects=[_object(NEIGHBOUR_ID, type_id=DENIED_TYPE_ID)],
@@ -820,9 +823,10 @@ class TestTheObjectAclFiltersEverySource:
         assert response['children_nodes'] == []
         assert response['child_edges'] == []
 
-    def test_an_open_neighbour_of_the_same_request_survives(self) -> None:
+    def test_an_open_neighbour_of_the_same_request_survives(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The filter is per type, so a mixed neighbourhood keeps the half the user may read."""
         managers = _managers(
+            monkeypatch=monkeypatch,
             object_relations=[_object_relation(), _object_relation() | {
                 'public_id': 12, 'relation_child_id': OTHER_NEIGHBOUR_ID, 'relation_child_type_id': DENIED_TYPE_ID,
             }],
@@ -839,9 +843,10 @@ class TestTheObjectAclFiltersEverySource:
         assert [node['linked_object']['public_id'] for node in response['children_nodes']] == [NEIGHBOUR_ID]
         assert len(response['child_edges']) == 1
 
-    def test_a_denied_location_neighbour_is_omitted(self) -> None:
+    def test_a_denied_location_neighbour_is_omitted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The location branch grafts raw objects, so it needs the filter as much as the relations do."""
         managers = _managers(
+            monkeypatch=monkeypatch,
             linked_objects=[],
             types=[_type_doc(), _locked_type_doc()],
             location={'public_id': 60, 'parent': 61, 'object_id': TARGET_ID},
@@ -858,9 +863,9 @@ class TestTheObjectAclFiltersEverySource:
         assert response['child_edges'] == []
         assert response['parent_edges'] == []
 
-    def test_a_denied_ipam_neighbour_is_omitted(self) -> None:
+    def test_a_denied_ipam_neighbour_is_omitted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The IPAM walk reaches supernets and VLANs, which carry their own ACLs like anything else."""
-        managers = _managers(linked_objects=[], types=[_type_doc(), _locked_type_doc()])
+        managers = _managers(monkeypatch=monkeypatch, linked_objects=[], types=[_type_doc(), _locked_type_doc()])
         neighbour = IpamNeighbour(
             neighbour_object=_object(NEIGHBOUR_ID, type_id=DENIED_TYPE_ID),
             edge_category=IpamEdgeCategory.SUBNET_SUPERNET,
@@ -873,13 +878,14 @@ class TestTheObjectAclFiltersEverySource:
         assert response['children_nodes'] == []
         assert response['child_edges'] == []
 
-    def test_a_denied_focal_object_is_reported_as_missing(self) -> None:
+    def test_a_denied_focal_object_is_reported_as_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         A 403 would confirm the object exists, which is exactly what the ACL hides
 
         So the denial raises what a missing target raises, and the route answers the same 404.
         """
         managers = _managers(
+            monkeypatch=monkeypatch,
             root=_object(TARGET_ID, type_id=DENIED_TYPE_ID),
             types=[_locked_type_doc()],
         )
@@ -887,7 +893,7 @@ class TestTheObjectAclFiltersEverySource:
         with pytest.raises(CiExplorerTargetNotFoundError):
             build_ci_explorer_graph(_request(with_root=True), managers, _user())
 
-    def test_a_denied_neighbour_costs_no_enrichment(self) -> None:
+    def test_a_denied_neighbour_costs_no_enrichment(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         The filter runs before the enrichment pass, not after it
 
@@ -895,6 +901,7 @@ class TestTheObjectAclFiltersEverySource:
         referenced ids still travel in the $in of a query built for a user who may not see it.
         """
         managers = _managers(
+            monkeypatch=monkeypatch,
             object_relations=[_object_relation()],
             relations=[_relation_doc()],
             linked_objects=[_object(NEIGHBOUR_ID, type_id=DENIED_TYPE_ID)],
@@ -925,9 +932,10 @@ class TestTheObjectAclFiltersEverySource:
 
         assert [node['linked_object']['public_id'] for node in response['children_nodes']] == [NEIGHBOUR_ID]
 
-    def test_an_open_graph_is_untouched_by_the_filter(self) -> None:
+    def test_an_open_graph_is_untouched_by_the_filter(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The common case - no type in scope carries an activated ACL - behaves as it always did."""
         managers = _managers(
+            monkeypatch=monkeypatch,
             object_relations=[_object_relation()],
             relations=[_relation_doc()],
             linked_objects=[_object(NEIGHBOUR_ID)],
@@ -1070,9 +1078,9 @@ class TestThePortConnectionSource:
 
         assert response['children_nodes'] == []
 
-    def test_a_denied_connected_ci_is_omitted(self) -> None:
+    def test_a_denied_connected_ci_is_omitted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The newest source is filtered like every other one."""
-        managers = _managers(types=[_type_doc(), _locked_type_doc()])
+        managers = _managers(monkeypatch=monkeypatch, types=[_type_doc(), _locked_type_doc()])
 
         with patch(f'{MODULE_PATH}.load_connection_neighbourhood',
                    return_value=_connection_neighbourhood(type_id=DENIED_TYPE_ID)):
@@ -1106,9 +1114,9 @@ class TestTheCapCountsReadableNeighboursOnly:
     read - they spend none of the item_limit budget, and a capped graph is never emptier than an uncapped one
     """
 
-    def test_a_hidden_target_is_refused_before_any_source_reads(self) -> None:
+    def test_a_hidden_target_is_refused_before_any_source_reads(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The same 404 a missing object gets - and no relation, object or location read was made"""
-        managers = _managers(root=_object(TARGET_ID, type_id=DENIED_TYPE_ID),
+        managers = _managers(monkeypatch=monkeypatch, root=_object(TARGET_ID, type_id=DENIED_TYPE_ID),
                              types=[_type_doc(), _locked_type_doc()])
 
         with pytest.raises(CiExplorerTargetNotFoundError):
@@ -1118,9 +1126,10 @@ class TestTheCapCountsReadableNeighboursOnly:
         managers.objects.find.assert_not_called()
         managers.locations.get_location_for_object.assert_not_called()
 
-    def test_the_relation_reads_exclude_the_denied_types(self) -> None:
+    def test_the_relation_reads_exclude_the_denied_types(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The relations by the other side's stamped type, the linked objects by their own - both before the cap"""
         managers = _managers(
+            monkeypatch=monkeypatch,
             object_relations=[_object_relation()], relations=[_relation_doc()],
             linked_objects=[_object(NEIGHBOUR_ID)], types=[_type_doc(), _locked_type_doc()],
         )
@@ -1140,23 +1149,23 @@ class TestTheCapCountsReadableNeighboursOnly:
         build_ci_explorer_graph(_request(item_limit=1), managers)
 
         assert 'type_id' not in managers.objects.find.call_args.kwargs['criteria']
-        assert all(call.kwargs.get('projection') is None for call in managers.types.find.call_args_list)
+        managers.types.get_denied_type_ids.assert_not_called()
 
 
 class TestResolveTypeScope:
     """The scope every source reads with."""
 
-    def test_the_callers_filter_and_the_denied_types(self) -> None:
+    def test_the_callers_filter_and_the_denied_types(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Allowed from the request, denied from the user's ACL"""
-        managers = _managers(types=[_type_doc(), _locked_type_doc()])
+        managers = _managers(monkeypatch=monkeypatch, types=[_type_doc(), _locked_type_doc()])
 
         scope = resolve_type_scope(_request(types_filter=frozenset({TYPE_ID})), managers, _object(TARGET_ID), _user())
 
         assert scope == NeighbourTypeScope(allowed=frozenset({TYPE_ID}), denied=frozenset({DENIED_TYPE_ID}))
 
-    def test_a_hidden_target_raises(self) -> None:
+    def test_a_hidden_target_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Before anything else"""
-        managers = _managers(types=[_locked_type_doc()])
+        managers = _managers(monkeypatch=monkeypatch, types=[_locked_type_doc()])
 
         with pytest.raises(CiExplorerTargetNotFoundError):
             resolve_type_scope(_request(), managers, _object(TARGET_ID, type_id=DENIED_TYPE_ID), _user())

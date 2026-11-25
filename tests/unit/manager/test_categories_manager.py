@@ -34,8 +34,8 @@ import pytest
 from cmdb.manager.categories_manager import CategoriesManager
 from cmdb.models.category_model import CmdbCategory
 from cmdb.models.type_model import CmdbType
-from cmdb.security.acl.builder import build_permitted_types_criteria
-from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.security.acl.acl_constants import AclKey
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
@@ -51,6 +51,7 @@ from cmdb.errors.manager.categories_manager import (
 from cmdb.errors.models.cmdb_category import CmdbCategoryInitFromDataError, CmdbCategoryToJsonError
 from cmdb.errors.models.cmdb_type import CmdbTypeInitFromDataError
 from cmdb.errors.database import DocumentQueryTimeLimitError
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.manager.categories_manager'
@@ -62,8 +63,10 @@ MISSING_CATEGORY_PUBLIC_ID: int = 99
 DELETED_TYPE_PUBLIC_ID: int = 42
 TOTAL_CATEGORIES: int = 2
 TREE_GROUP_ID: int = 5
+HIDDEN_TYPE_PUBLIC_ID: int = 61
+OPEN_TYPE_PUBLIC_ID: int = 62
 
-# Only the group id is read off the user the tree is built for
+# Only the group ids are read off the user the tree is built for (by the stubbed access engine)
 TREE_USER: MagicMock = MagicMock(group_ids=[TREE_GROUP_ID])
 
 SAMPLE_CATEGORY_DICT: dict[str, Any] = {'public_id': CATEGORY_PUBLIC_ID, 'name': 'c', 'label': 'C'}
@@ -92,6 +95,17 @@ def _mock_manager() -> MagicMock:
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestTree:
     """``get_tree`` composes a CategoryTree from the categories and the types the user's group may READ."""
+
+    @pytest.fixture(autouse=True)
+    def engine_hides_one_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The access engine answers from two Types' ACLs: one granting the tree's group UPDATE but not READ, one
+        without an ACL - so only a READ question hides the first"""
+        decide_by_type_acls(monkeypatch, [
+            {TypeSchemaKey.PUBLIC_ID.value: HIDDEN_TYPE_PUBLIC_ID,
+             TypeSchemaKey.ACL.value: {AclKey.ACTIVATED.value: True,
+                                       AclKey.GROUPS.value: {AclKey.INCLUDES.value: {str(TREE_GROUP_ID): ['UPDATE']}}}},
+            {TypeSchemaKey.PUBLIC_ID.value: OPEN_TYPE_PUBLIC_ID},
+        ])
 
     def test_builds_category_tree_from_categories_and_types(self) -> None:
         """The happy path passes the hydrated categories and types to ``CategoryTree``."""
@@ -135,7 +149,7 @@ class TestTree:
 
         mgr.get_many_from_other_collection.assert_called_once_with(
             CmdbType.COLLECTION,
-            criteria=build_permitted_types_criteria(TREE_USER.group_ids, AccessControlPermission.READ),
+            criteria={TypeSchemaKey.PUBLIC_ID.value: {'$nin': [HIDDEN_TYPE_PUBLIC_ID]}},
         )
 
     def test_a_failed_type_read_is_a_tree_init_error(self) -> None:

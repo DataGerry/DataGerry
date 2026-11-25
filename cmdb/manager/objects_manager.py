@@ -65,7 +65,7 @@ from cmdb.models.object_group_model import ObjectReferenceType
 from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.user_model import CmdbUser
-from cmdb.security.acl.builder import build_denied_types_condition, resolve_denied_type_ids
+from cmdb.security.acl.builder import build_denied_types_condition, build_scope_criteria, resolve_denied_type_ids
 from cmdb.security.acl.helpers import verify_access
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.results import IterationResult
@@ -595,7 +595,9 @@ class ObjectsManager(BaseManager):
         if user is None or permission is None:
             return criteria
 
-        return ObjectsManager.narrow_criteria_by_denied_types(criteria, resolve_denied_type_ids(user, permission))
+        scope_criteria: dict[str, Any] = build_scope_criteria(user, permission)
+
+        return {'$and': [criteria, scope_criteria]} if scope_criteria else criteria
 
 
     @staticmethod
@@ -959,13 +961,12 @@ class ObjectsManager(BaseManager):
             IterationResult[CmdbObject]: A paginated and sorted collection of CmdbObjects
             that reference the given object
         """
+        # The id list serves the multi-data and page reads below; this query takes the engine's own filter
         denied_type_ids: list[int] = (
             resolve_denied_type_ids(user, permission) if user is not None and permission is not None else []
         )
         builder_params = BuilderParameters(criteria=build_reference_id_criteria(object_, criteria))
-
-        if denied_type_ids:
-            builder_params.add_criteria(build_denied_types_condition(denied_type_ids))
+        self._apply_acl_to_builder_params(builder_params, user, permission)
 
         try:
             id_query: list[dict[str, Any]] = self.query_builder.build(builder_params)

@@ -60,6 +60,7 @@ from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import (
 )
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The three scope steps as shipped, kept before the module-wide pass-through below replaces them
@@ -602,7 +603,9 @@ class TestSendWebhookEventOwnerScope:
 
     @staticmethod
     def _wire(monkeypatch: pytest.MonkeyPatch, webhooks: list, types_manager, users_manager) -> _StubEventManager:
-        """Routes the four managers to their stubs and makes every POST a 200"""
+        """Routes the four managers to their stubs and makes every POST a 200 - the access engine answering from the
+        stubbed types' ACLs"""
+        decide_by_type_acls(monkeypatch, types_manager.type_documents)
         event_manager = _StubEventManager()
         managers = {'WEBHOOKS': _StubWebhooksManager(webhooks), 'TYPES': types_manager,
                     'USERS': users_manager, 'WEBHOOKS_EVENT': event_manager}
@@ -615,8 +618,9 @@ class TestSendWebhookEventOwnerScope:
 
     @staticmethod
     def _type_readable_by(group_id: int) -> dict[str, Any]:
-        """A type ACL letting one group READ"""
-        return {'acl': {'activated': True, 'groups': {'includes': {str(group_id): ['READ']}}}}
+        """The event's type, its ACL letting one group READ"""
+        return {'public_id': EVENT_TYPE_ID,
+                'acl': {'activated': True, 'groups': {'includes': {str(group_id): ['READ']}}}}
 
     def test_only_the_reader_owned_webhook_is_delivered_and_recorded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The other webhook leaves no event (Q5: a skip records nothing)"""
@@ -632,7 +636,7 @@ class TestSendWebhookEventOwnerScope:
                            object_after={'public_id': 5, 'type_id': EVENT_TYPE_ID})
 
         assert [event['webhook_id'] for event in event_manager.inserted] == [2]
-        assert types_manager.calls == [({'public_id': EVENT_TYPE_ID}, {'_id': 0, 'acl': 1})]
+        assert types_manager.calls == [({'public_id': EVENT_TYPE_ID}, {'_id': 0, 'public_id': 1, 'acl': 1})]
         assert users_manager.calls == [[READER_ID, HIDDEN_ID]]
 
     def test_a_delete_is_scoped_by_the_type_before(self, monkeypatch: pytest.MonkeyPatch) -> None:

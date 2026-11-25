@@ -35,14 +35,17 @@ class DeleteSingleResponse(BaseAPIResponse):
     API Response for delete call of a single resource.
     """
 
-    def __init__(self, raw: dict[str, Any] | None = None) -> None:
+    def __init__(self, raw: dict[str, Any] | None = None, *, extra: dict[str, Any] | None = None) -> None:
         """
         Constructor of DeleteSingleResponse
 
         Args:
             raw: Content of deleted resource
+            extra: Keys answered next to `raw` about what the delete removed besides the resource (a cascade's
+                count, say); they never override `raw` or the envelope keys
         """
         self.raw: dict[str, Any] | None = raw
+        self.extra: dict[str, Any] = dict(extra or {})
         super().__init__(operation_type=OperationType.DELETE)
 
 
@@ -68,9 +71,10 @@ class DeleteSingleResponse(BaseAPIResponse):
         Returns the response payload as a dict
 
         Returns:
-            dict[str, Any]: The deleted resource under `raw`, plus the envelope keys
+            dict[str, Any]: The deleted resource under `raw`, the extra keys, plus the envelope keys
         """
         return {
+            **self.extra,
             ResponseKey.RAW.value: self.raw,
             **super().export(),
         }

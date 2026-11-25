@@ -24,7 +24,7 @@ node and its risk assessment in place; a bulk selection with one refused target 
 permitted delete still deletes. Also the group-by route's field whitelist.
 
 The caller is the default test client, an administrator holding ``base.framework.object.delete`` - so
-the refusal can only come from the type
+the refusal can only come from the type. The Types' ACLs are also stored as the access rules they translate to
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -40,6 +40,7 @@ from cmdb.models.isms_model import IsmsRiskAssessment
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
 from cmdb.models.location_model.location_constants import RootLocationDefault
 from cmdb.security.acl.permission import AccessControlPermission
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/objects'
@@ -114,7 +115,9 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
     _seed_object(database_manager, database_name, DENIED_OBJECT_ID, DENYING_TYPE_ID)
     _seed_object(database_manager, database_name, PERMITTED_OBJECT_ID, PERMITTING_TYPE_ID)
     _seed_object(database_manager, database_name, DEACTIVATED_OBJECT_ID, DEACTIVATED_TYPE_ID)
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], TYPE_IDS)
     yield collection
+    remove_type_access(database_manager.connector.client[database_name], access)
     _clean(collection)
 
 

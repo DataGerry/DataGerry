@@ -25,6 +25,7 @@ path for the members: it reads them once, records the exact inverse in the reque
 those ids. A member in other groups too only loses the group; the action (MOVE / DELETE) is about the **sole**
 members, whose only group it is - so the refusals ask about those
 """
+from collections.abc import Iterable
 from typing import Any
 from flask import abort
 
@@ -32,10 +33,13 @@ from cmdb.framework.write_ledger import WriteLedger
 from cmdb.manager import GroupsManager, UserSettingsManager, UsersManager
 from cmdb.models.settings_model import UserSettingKey
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
+from cmdb.models.group_model.effective_rights import EffectiveRights
+from cmdb.interface.route_utils import request_groups
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import (
     GROUP_ADMIN_MEMBER_MSG,
     GROUP_MEMBERS_NEED_ACTION_MSG,
     GROUP_MOVE_TARGET_IS_SOURCE_MSG,
+    GROUP_RIGHTS_NOT_HELD_MSG,
     GROUP_UNKNOWN_RIGHTS_MSG,
 )
 from cmdb.models.group_model import (
@@ -305,3 +309,42 @@ def abort_if_unknown_rights(data: dict[str, Any], known_names: frozenset[str]) -
 
     if unknown:
         abort(400, GROUP_UNKNOWN_RIGHTS_MSG.format(names=', '.join(f"'{name}'" for name in unknown)))
+
+
+def unheld_rights(held: EffectiveRights, submitted: list[str] | None, already_granted: Iterable[Any] = ()
+                  ) -> list[str]:
+    """
+    The rights a group write would newly grant that the caller does not hold - directly or through a wildcard
+
+    Args:
+        held (EffectiveRights): The caller's rights
+        submitted (list[str] | None): The right names the write sends
+        already_granted (Iterable[Any]): The rights the group holds already, as stored - not judged; an entry that
+            is no name (a group stored before the rights rule) holds nothing
+
+    Returns:
+        list[str]: The names not held, in the order sent, each once
+    """
+    granted: set[str] = {name for name in already_granted if isinstance(name, str)}
+
+    return [name for name in dict.fromkeys(submitted or []) if name not in granted and not held.grants(name)]
+
+
+def abort_if_granting_unheld_rights(request_user: CmdbUser, submitted: list[str] | None,
+                                    already_granted: Iterable[Any] = ()) -> None:
+    """
+    Refuses a group create or update granting a right the caller does not hold - nobody hands out more than they
+    have; the rights the group holds already may stay
+
+    Args:
+        request_user (CmdbUser): The caller - its groups' rights are read once per request
+        submitted (list[str] | None): The right names the write sends
+        already_granted (Iterable[Any]): The rights the group holds already, as stored
+
+    Raises:
+        HTTPException: 400 naming the rights not held
+    """
+    unheld: list[str] = unheld_rights(request_groups(request_user), submitted, already_granted)
+
+    if unheld:
+        abort(400, GROUP_RIGHTS_NOT_HELD_MSG.format(names=unheld))

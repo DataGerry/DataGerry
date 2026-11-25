@@ -45,6 +45,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.user_model import CmdbUser
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/objects'
@@ -107,7 +108,10 @@ def _count(rest_api, type_id: int, query: str = '', **user: Any) -> Any:
 
 @pytest.fixture(autouse=True)
 def _seed(database_manager: MongoDatabaseManager, database_name: str):
-    """Both Types with their objects, the viewer group and user; everything removed afterwards"""
+    """
+    Both Types with their objects and the access rules their ACLs translate to, the viewer group and user; everything
+    removed afterwards
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
     groups = database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name)
@@ -134,7 +138,10 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
                        'rights': [ObjectRightName.VIEW.value]})
     users.insert_one({'public_id': VIEWER_ID, 'user_name': VIEWER_NAME, 'active': True, 'group_ids': [VIEWER_GROUP_ID],
                       'registration_time': datetime.now(timezone.utc)})
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [OPEN_TYPE_ID, GUARDED_TYPE_ID])
     yield
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

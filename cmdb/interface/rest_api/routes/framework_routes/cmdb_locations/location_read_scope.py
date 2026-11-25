@@ -40,9 +40,7 @@ __all__ = ['abort_unless_location_readable', 'read_denied_type_ids']
 
 def read_denied_type_ids(request_user: CmdbUser) -> list[int]:
     """
-    Answers the Types whose nodes the reader may not see - those its group may not READ
-
-    One projected read of the Types
+    Answers the Types whose nodes the reader may not see - those the access engine denies it READ (view)
 
     Args:
         request_user (CmdbUser): The reader

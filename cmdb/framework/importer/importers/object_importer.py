@@ -28,6 +28,8 @@ from cmdb.manager.objects_config_item_helper import config_item_criteria
 from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.section_templates_manager import SectionTemplatesManager
 
+from cmdb.framework.access_engine import can, refusal_message
+from cmdb.models.access_model import ScopeOperation
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import (
     CmdbObjectKey,
@@ -444,7 +446,32 @@ class ObjectImporter(BaseImporter):
         if not self.get_config().overwrite_public:
             current_import_object.pop(CmdbObjectKey.PUBLIC_ID.value, None)
 
+        # A row without an id to overwrite is a create - judged now; one keeping its id is judged once it is known
+        # whether it overwrites (an edit) or is inserted (a create)
+        if CmdbObjectKey.PUBLIC_ID.value not in current_import_object and (
+                write_refusal := self._write_refusal(ScopeOperation.CREATE, None, current_import_object)):
+            return ImportFailedMessage(failed_object=provided, errors=[write_refusal]), provided_field_names
+
         return None, provided_field_names
+
+
+    def _write_refusal(self, operation: ScopeOperation, before: dict[str, Any] | None,
+                       after: dict[str, Any]) -> str | None:
+        """
+        Why the access engine refuses the importer this object write - the Type, or a field it may not write
+
+        Args:
+            operation (ScopeOperation): CREATE or EDIT
+            before (dict[str, Any] | None): The stored object; None for a create
+            after (dict[str, Any]): The object as it would be stored
+
+        Raises:
+            AccessAssignmentsManagerGetError | ScopeRolesManagerGetError: When the importer's grants could not be read
+
+        Returns:
+            str | None: The refusal, or None when the write is allowed
+        """
+        return refusal_message(can(self.request_user, operation, before, after))
 
 
     def _person_selector_refusal(self, candidate: dict[str, Any], type_context: ImportTypeContext | None) -> str | None:
@@ -589,6 +616,10 @@ class ObjectImporter(BaseImporter):
                 if outcome is not None:
                     return outcome
 
+            # Not stored (or deleted since the import read it): a create, the importer's to make with every field
+            if write_refusal := self._write_refusal(ScopeOperation.CREATE, None, current_import_object):
+                return None, ImportFailedMessage(failed_object=provided, errors=[write_refusal])
+
             if current_app.cloud_mode and self.check_config_item_limit_reached(self.request_user):
                 raise ObjectsManagerInsertError(CONFIG_ITEM_LIMIT_REACHED_MESSAGE)
 
@@ -661,8 +692,11 @@ class ObjectImporter(BaseImporter):
 
         replacement, changes = plan_overwrite(existing, current_import_object, self.request_user)
 
-        if sync_lock_error := enforce_sync_lock(self.objects_manager, replacement, existing):
-            return None, ImportFailedMessage(failed_object=provided, errors=[sync_lock_error])
+        # A synced object keeps what user management alone may change; the importer may edit the stored object into
+        # the replacement, every changed field included
+        if refusal := (enforce_sync_lock(self.objects_manager, replacement, existing)
+                       or self._write_refusal(ScopeOperation.EDIT, existing, replacement)):
+            return None, ImportFailedMessage(failed_object=provided, errors=[refusal])
 
         if not replace_stored_object(self.objects_manager, replacement):
             return None

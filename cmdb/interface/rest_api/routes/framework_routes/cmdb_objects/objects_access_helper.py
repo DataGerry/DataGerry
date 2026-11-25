@@ -18,13 +18,18 @@ The read-access check other routes run on a CmdbObject before they answer someth
 
 A route that serves data hanging off one object - its logs, its relation tabs - is as readable as the object
 itself, and answers like ``GET /objects/<id>`` does: 403 when the caller's groups may not read the object's type.
-Whether a missing object is refused is the caller's choice - the object's logs outlive it, its relations do not
+Whether a missing object is refused is the caller's choice - the object's logs outlive it, its relations do not.
+
+The write check (``abort_unless_write_allowed``) is the access engine's decision on the object itself: the Type of
+each state the operation touches, and every field the write changes
 """
 from typing import Any
 
 from flask import abort
 
 from cmdb.manager import ObjectsManager
+from cmdb.framework.access_engine import AccessDecision, can, refusal_message
+from cmdb.models.access_model import ScopeOperation
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
 
@@ -68,3 +73,24 @@ def read_object_or_abort(
         abort(404, missing_message)
 
     return found
+
+
+def abort_unless_write_allowed(request_user: CmdbUser, operation: ScopeOperation,
+                               before: dict[str, Any] | None, after: dict[str, Any]) -> None:
+    """
+    Refuses an object create or edit the access engine does not allow - a Type the operation is not granted on, or a
+    changed field the granting roles may not write
+
+    Args:
+        request_user (CmdbUser): The writer
+        operation (ScopeOperation): CREATE or EDIT
+        before (dict[str, Any] | None): The stored object; None for a create
+        after (dict[str, Any]): The object as it would be stored
+
+    Raises:
+        HTTPException: 403 naming the refused fields or the Type
+    """
+    decision: AccessDecision = can(request_user, operation, before, after)
+
+    if not decision.allowed:
+        abort(403, refusal_message(decision))

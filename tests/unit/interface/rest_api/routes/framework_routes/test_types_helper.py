@@ -82,7 +82,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     apply_type_update_side_effects,
     refused_type_identity,
     verify_type_is_unique,
-    normalize_type_acl,
     type_deletion_followup,
     apply_type_changes_to_locations,
     apply_type_changes_to_mds,
@@ -96,6 +95,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.security.license.license_constants import LicenseFeature
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper'
@@ -137,9 +137,10 @@ READER: SimpleNamespace = SimpleNamespace(group_ids=[READER_GROUP_ID])
     (_grants(OTHER_GROUP_ID, ['READ']), False),
 ], ids=['no-acl', 'switched-off', 'granted', 'other-permissions-only', 'other-group-only'])
 def test_is_type_readable_reads_the_acl_the_same_from_a_document_and_a_model(
-        acl: dict[str, Any] | None, readable: bool) -> None:
+        monkeypatch: pytest.MonkeyPatch, acl: dict[str, Any] | None, readable: bool) -> None:
     """READ is the permission asked, and the stored document and the hydrated model agree"""
     doc = _acl_type_doc(acl)
+    decide_by_type_acls(monkeypatch, [doc])
     model = CmdbType.from_data({**make_type_doc(ACL_TYPE_ID, 'acl-type'), **doc})
 
     assert is_type_readable(doc, READER) is readable
@@ -147,9 +148,11 @@ def test_is_type_readable_reads_the_acl_the_same_from_a_document_and_a_model(
 
 
 @pytest.mark.parametrize('as_model', [False, True], ids=['document', 'model'])
-def test_abort_unless_type_readable_refuses_with_403_naming_the_type(as_model: bool) -> None:
+def test_abort_unless_type_readable_refuses_with_403_naming_the_type(
+        monkeypatch: pytest.MonkeyPatch, as_model: bool) -> None:
     """A 403 carrying the type's public_id, from either shape"""
     doc = _acl_type_doc(_grants(OTHER_GROUP_ID, ['READ']))
+    decide_by_type_acls(monkeypatch, [doc])
     target = CmdbType.from_data({**make_type_doc(ACL_TYPE_ID, 'acl-type'), **doc}) if as_model else doc
 
     with pytest.raises(HTTPException) as exc:
@@ -159,9 +162,12 @@ def test_abort_unless_type_readable_refuses_with_403_naming_the_type(as_model: b
     assert exc.value.description == TYPE_ACCESS_DENIED_MESSAGE.format(public_id=ACL_TYPE_ID)
 
 
-def test_abort_unless_type_readable_lets_a_readable_type_pass() -> None:
+def test_abort_unless_type_readable_lets_a_readable_type_pass(monkeypatch: pytest.MonkeyPatch) -> None:
     """Nothing is raised"""
-    assert abort_unless_type_readable(_acl_type_doc(_grants(READER_GROUP_ID, ['READ'])), READER) is None
+    doc = _acl_type_doc(_grants(READER_GROUP_ID, ['READ']))
+    decide_by_type_acls(monkeypatch, [doc])
+
+    assert abort_unless_type_readable(doc, READER) is None
 
 
 # ------------------------------------------ get_type_or_404 / get_type_instance_or_404 ------------------------------ #
@@ -1136,86 +1142,6 @@ def test_enforce_rack_selectable_as_parent_aborts_400_on_an_explicit_false() -> 
         enforce_rack_selectable_as_parent(SpecialType.RACK, data)
 
     assert err.value.code == 400
-
-
-# ------------------------------------------------------ normalize_type_acl ------------------------------------------ #
-
-ACL_DEFAULT: dict[str, Any] = {'activated': False, 'groups': {'includes': {}}}
-
-
-def test_normalize_type_acl_adds_the_default_when_the_key_is_absent() -> None:
-    """A create that sends no acl stored a document without one; it now gets the same block as an update."""
-    payload: dict[str, Any] = {'name': 'x'}
-
-    normalize_type_acl(payload)
-
-    assert payload[TypeSchemaKey.ACL.value] == ACL_DEFAULT
-
-
-def test_normalize_type_acl_completes_an_acl_that_only_carries_groups() -> None:
-    """The shape the model and the query builder used to disagree about is completed on the way in."""
-    payload: dict[str, Any] = {'acl': {'groups': {'includes': {'1': ['READ']}}}}
-
-    normalize_type_acl(payload)
-
-    assert payload[TypeSchemaKey.ACL.value] == {
-        'activated': False,
-        'groups': {'includes': {'1': ['READ']}},
-    }
-
-
-def test_normalize_type_acl_completes_an_acl_that_only_carries_the_flag() -> None:
-    """The other half: an activated acl with no groups gains the empty section."""
-    payload: dict[str, Any] = {'acl': {'activated': True}}
-
-    normalize_type_acl(payload)
-
-    assert payload[TypeSchemaKey.ACL.value] == {'activated': True, 'groups': {'includes': {}}}
-
-
-def test_normalize_type_acl_keeps_a_complete_acl_unchanged() -> None:
-    """The common case is a no-op - the frontend always sends both halves."""
-    stored = {'activated': True, 'groups': {'includes': {'2': ['READ', 'UPDATE']}}}
-    payload: dict[str, Any] = {'acl': dict(stored)}
-
-    normalize_type_acl(payload)
-
-    assert payload[TypeSchemaKey.ACL.value] == stored
-
-
-@pytest.mark.parametrize('acl', [None, {}, {'groups': None}, {'groups': {'includes': None}}], ids=str)
-def test_normalize_type_acl_reads_every_empty_spelling_as_the_default(acl: Any) -> None:
-    """
-    null, {}, a null groups and a null includes all mean "no ACL"
-
-    A null `groups` must not raise inside `GroupACL.from_data`, which on the update route surfaces as a
-    500; the model tolerates it now, so completing the payload here cannot turn a create into one.
-    """
-    payload: dict[str, Any] = {'acl': acl}
-
-    normalize_type_acl(payload)
-
-    assert payload[TypeSchemaKey.ACL.value] == ACL_DEFAULT
-
-
-def test_normalize_type_acl_drops_unknown_keys_inside_the_acl() -> None:
-    """The model reads only 'activated' and 'groups' - which is what an update has always stored."""
-    payload: dict[str, Any] = {'acl': {'activated': False, 'groups': {'includes': {}}, 'junk': 1}}
-
-    normalize_type_acl(payload)
-
-    assert 'junk' not in payload[TypeSchemaKey.ACL.value]
-
-
-def test_normalize_type_acl_leaves_the_rest_of_the_payload_alone() -> None:
-    """It completes one key and touches nothing else."""
-    payload: dict[str, Any] = {'name': 'x', 'fields': [], 'public_id': 7}
-
-    normalize_type_acl(payload)
-
-    assert payload['name'] == 'x'
-    assert not payload['fields']
-    assert payload['public_id'] == 7
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

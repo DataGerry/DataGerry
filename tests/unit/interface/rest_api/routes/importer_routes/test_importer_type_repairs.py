@@ -17,8 +17,8 @@
 Unit tests for cmdb.interface.rest_api.routes.importer_routes.importer_type_repairs
 
 The repairs an import applies instead of refusing an entry: the dropped public_id, the optional
-top-level defaults, the render_meta icon, and the three that resolve ids belonging to the exporting
-system - cross-type references, ACL groups and global section templates. Manager stubs stand in for
+top-level defaults (an uploaded ACL replaced by the default), the render_meta icon, and the two that resolve ids
+belonging to the exporting system - cross-type references and global section templates. Manager stubs stand in for
 the database, so the tests also pin how many queries a repair costs.
 """
 import re
@@ -40,8 +40,6 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_repairs import
     clear_dangling_ci_explorer_label,
     apply_render_meta_defaults,
     clear_dangling_type_references,
-    clear_dangling_acl_groups,
-    deactivate_empty_acl,
     reconcile_global_templates,
     template_section_conflict_message,
     resolve_global_templates,
@@ -200,14 +198,13 @@ class TestApplyTypeDefaults:
 
         assert second['acl'] == {'activated': False, 'groups': {'includes': {}}}
 
-    def test_uploaded_acl_is_kept(self) -> None:
-        """An ACL the upload brings survives."""
-        acl = {'activated': True, 'groups': {'includes': {'2': ['READ']}}}
-        entry = {'name': 'server', 'acl': acl}
+    def test_an_uploaded_acl_is_replaced_by_the_default(self) -> None:
+        """Access is managed through the access rules - an uploaded ACL is not imported."""
+        entry = {'name': 'server', 'acl': {'activated': True, 'groups': {'includes': {'2': ['READ']}}}}
 
         apply_type_defaults(entry)
 
-        assert entry['acl'] == acl
+        assert entry['acl'] == {'activated': False, 'groups': {'includes': {}}}
 
     @pytest.mark.parametrize('entry', ['a string', 42, None], ids=['str', 'int', 'none'])
     def test_non_dict_entry_is_ignored(self, entry: Any) -> None:
@@ -373,67 +370,6 @@ class TestMalformedRenderMetaIsTolerated:
         assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) \
             == TypeImportError.NORMALIZATION_FAILED.format(detail=BOOM)
         assert not types_manager.updated
-
-
-def _acl_entry(includes: Any) -> dict[str, Any]:
-    """An uploaded type carrying the given ACL group grants."""
-    return {'name': 'server', 'acl': {'activated': True, 'groups': {'includes': includes}}}
-
-
-class TestClearDanglingAclGroups:
-    """ACL grants name groups of the exporting system, so unresolvable ones are dropped."""
-
-    def test_a_resolvable_group_keeps_its_grant(self) -> None:
-        """A group that exists here survives untouched."""
-        entry = _acl_entry({'2': ['READ']})
-
-        assert clear_dangling_acl_groups(entry, StubTypesManager(existing_group_ids={2})) == []
-        assert entry['acl']['groups']['includes'] == {'2': ['READ']}
-
-    def test_an_unknown_group_is_dropped(self) -> None:
-        """Nobody decided to grant the group holding that id here, so the entry goes."""
-        entry = _acl_entry({'2': ['READ'], '3': ['UPDATE']})
-
-        assert clear_dangling_acl_groups(entry, StubTypesManager(existing_group_ids={2})) == ['3']
-        assert entry['acl']['groups']['includes'] == {'2': ['READ']}
-
-    def test_an_unparsable_key_is_dropped(self) -> None:
-        """A key that is not a public_id at all can never resolve."""
-        entry = _acl_entry({'not-an-id': ['READ']})
-
-        assert clear_dangling_acl_groups(entry, StubTypesManager()) == ['not-an-id']
-        assert entry['acl']['groups']['includes'] == {}
-
-    def test_integer_keys_are_understood(self) -> None:
-        """A payload that kept its keys as numbers resolves the same way."""
-        entry = _acl_entry({4: ['READ']})
-
-        assert clear_dangling_acl_groups(entry, StubTypesManager(existing_group_ids={4})) == []
-        assert entry['acl']['groups']['includes'] == {4: ['READ']}
-
-    def test_all_groups_are_resolved_in_one_query(self) -> None:
-        """One read per entry, whatever the number of grants."""
-        types_manager = StubTypesManager(existing_group_ids={2, 3})
-
-        clear_dangling_acl_groups(_acl_entry({'2': ['READ'], '3': ['UPDATE']}), types_manager)
-
-        (collection, criteria), = types_manager.group_lookups
-
-        assert collection == 'management.groups'
-        assert criteria == {'public_id': {'$in': [2, 3]}}
-
-    @pytest.mark.parametrize(
-        'entry',
-        [{'name': 'x'}, {'name': 'x', 'acl': None}, {'name': 'x', 'acl': {'groups': {'includes': {}}}},
-         {'name': 'x', 'acl': {'groups': 'nonsense'}}, 'not-a-dict'],
-        ids=['no-acl', 'null-acl', 'empty', 'malformed', 'not-a-dict'],
-    )
-    def test_nothing_to_resolve_costs_no_query(self, entry: Any) -> None:
-        """An entry without usable grants is left alone and never read for."""
-        types_manager = StubTypesManager()
-
-        assert clear_dangling_acl_groups(entry, types_manager) == []
-        assert not types_manager.group_lookups
 
 
 def _template(name: str, fields: list[dict[str, Any]], section_type: str = 'section') -> dict[str, Any]:
@@ -695,7 +631,7 @@ class TestNormalizeImportedType:
     """normalize_imported_type applies every repair, in one place, for both verbs."""
 
     def test_every_repair_runs(self) -> None:
-        """Defaults, icon, references, ACL groups and templates are all applied to one entry."""
+        """Defaults (the ACL among them), icon, references and templates are all applied to one entry."""
         entry = _type_claiming(
             'dg-gone', [type_field('host')], [{'type': 'section', 'name': 'dg-gone', 'fields': ['host']}],
         )
@@ -707,7 +643,7 @@ class TestNormalizeImportedType:
         assert entry['label'] == 'Server'                       # apply_type_defaults
         assert entry['render_meta']['icon'] == DEFAULT_TYPE_ICON  # apply_render_meta_defaults
         assert entry['fields'][1]['ref_types'] == []            # clear_dangling_type_references
-        assert entry['acl']['groups']['includes'] == {}         # clear_dangling_acl_groups
+        assert entry['acl'] == {'activated': False, 'groups': {'includes': {}}}  # apply_type_defaults
         assert entry['global_template_ids'] == []               # reconcile_global_templates
         assert entry['port_section_index'] == DEFAULT_PORT_SECTION_INDEX  # apply_port_section_index_default
         assert entry['ci_explorer_label'] is None                # clear_dangling_ci_explorer_label
@@ -786,52 +722,6 @@ class TestTemplateReconciliationToleratesNonsense:
         reconcile_global_templates(entry, StubSectionTemplatesManager([_template('dg-contact', [])]))
 
         assert entry['fields'] == []
-
-
-class TestDeactivateEmptyAcl:
-    """An access control list granting nothing denies everyone, so it is switched off."""
-
-    def test_an_emptied_acl_is_switched_off(self) -> None:
-        """Whatever emptied it, an active list with no grant is unusable."""
-        entry = _acl_entry({})
-
-        assert deactivate_empty_acl(entry) is True
-        assert entry['acl']['activated'] is False
-
-    def test_the_repair_and_the_deactivation_work_together(self) -> None:
-        """clear_dangling_acl_groups drops the last grant, this switches the list off."""
-        entry = _acl_entry({'4711': ['READ']})
-
-        clear_dangling_acl_groups(entry, StubTypesManager())
-
-        assert deactivate_empty_acl(entry) is True
-        assert entry['acl'] == {'activated': False, 'groups': {'includes': {}}}
-
-    def test_a_list_that_still_grants_something_is_left_on(self) -> None:
-        """One surviving grant is a real access rule."""
-        entry = _acl_entry({'2': ['READ']})
-
-        assert deactivate_empty_acl(entry) is False
-        assert entry['acl']['activated'] is True
-
-    @pytest.mark.parametrize(
-        'entry',
-        [{'name': 'x'}, {'name': 'x', 'acl': 'nonsense'},
-         {'name': 'x', 'acl': {'activated': False, 'groups': {'includes': {}}}},
-         'not-a-dict'],
-        ids=['no-acl', 'malformed', 'already-off', 'not-a-dict'],
-    )
-    def test_nothing_to_switch_off(self, entry: Any) -> None:
-        """An absent, malformed or already inactive list is left exactly as it is."""
-        assert deactivate_empty_acl(entry) is False
-
-    def test_an_active_list_without_a_groups_section_is_switched_off(self) -> None:
-        """No groups section at all grants nothing either."""
-        entry = {'name': 'x', 'acl': {'activated': True}}
-
-        deactivate_empty_acl(entry)
-
-        assert entry['acl']['activated'] is False
 
 
 class TestGlobalTemplateClaimHygiene:

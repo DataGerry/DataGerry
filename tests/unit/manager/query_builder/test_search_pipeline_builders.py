@@ -18,9 +18,9 @@ Unit tests for the search aggregation-pipeline builders
 
 Pins the MongoDB pipeline shape produced by QuickSearchPipelineBuilder and SearchPipelineBuilder. The
 builders are dict constructors whose external dependencies are resolved lazily through ManagerProvider
-and stubbed here - SearchPipelineBuilder's CategoriesManager, the TypesManager the ACL filter reads the
-denied types from, and the ObjectsManager each text term collects its matching referenced objects with
-(`framework/search/search_reference_match.py`, tested on its own).
+and stubbed here - SearchPipelineBuilder's CategoriesManager and the ObjectsManager each text term collects its
+matching referenced objects with (`framework/search/search_reference_match.py`, tested on its own). The ACL filter's
+denied types come from the access engine, answering from locked in-memory Types (``decide_by_type_acls``).
 
 Also: the **stage order** (the ACL stages last of the builder's own output, since the caller appends
 its facet after them), the AND path of the TYPE parameters - easy to assert under a name that says
@@ -45,13 +45,18 @@ from cmdb.framework.search.search_constants import (
     SearchFormType,
 )
 from cmdb.manager.manager_provider_model import ManagerType
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.security.acl.acl_constants import AclKey
 from cmdb.security.acl.permission import AccessControlPermission
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CATEGORY_TYPE_IDS: list[int] = [10, 11]
 UNION_TYPE_IDS: list[int] = [10, 11, 20, 21]
 GROUP_ID: int = 1
 DENIED_TYPE_IDS: list[int] = [21, 22]
+# An activated ACL naming no group: the Type is denied to every user
+LOCKED_ACL: dict[str, Any] = {AclKey.ACTIVATED.value: True, AclKey.GROUPS.value: {AclKey.INCLUDES.value: {}}}
 REFERENCED_IDS: list[int] = [31, 32]
 
 
@@ -99,17 +104,6 @@ class _CountingCategoriesManager(_StubCategoriesManager):
         return super().get_type_ids_of_categories(_criteria)
 
 
-class _StubTypesManager:
-    """Stand-in for TypesManager answering the ACL filter's denied-types query."""
-
-    def __init__(self, denied_type_ids: list[int]) -> None:
-        self.denied_type_ids = denied_type_ids
-
-    def find(self, **_kwargs: Any) -> list[dict[str, int]]:
-        """Mirrors BaseManager.find, ignoring the criteria and returning the configured ids."""
-        return [{'public_id': type_id} for type_id in self.denied_type_ids]
-
-
 class _StubObjectsManager:
     """Stand-in for ObjectsManager answering a text term's referenced-objects query."""
 
@@ -132,10 +126,21 @@ def _stub_manager_provider(
         denied_type_ids: list[int],
         categories_manager: Any = None,
         objects_manager: Any = None) -> None:
-    """Routes ManagerProvider.get_manager to the right stub for the requested ManagerType."""
+    """
+    Routes ManagerProvider.get_manager to the right stub for the requested ManagerType, and lets the access engine
+    deny the given Types (each an activated ACL granting no group)
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The test's monkeypatch
+        denied_type_ids (list[int]): The Types the user's group is denied
+        categories_manager (Any): The CategoriesManager stand-in; a fresh one when None
+        objects_manager (Any): The ObjectsManager stand-in; one answering no reference when None
+    """
+    decide_by_type_acls(monkeypatch, [
+        {TypeSchemaKey.PUBLIC_ID.value: type_id, TypeSchemaKey.ACL.value: LOCKED_ACL} for type_id in denied_type_ids
+    ])
+
     def _get_manager(manager_type: ManagerType, *_a: Any, **_k: Any) -> Any:
-        if manager_type == ManagerType.TYPES:
-            return _StubTypesManager(denied_type_ids)
         if manager_type == ManagerType.OBJECTS:
             return objects_manager or _StubObjectsManager([])
         return categories_manager or _StubCategoriesManager()
@@ -147,7 +152,7 @@ def _stub_manager_provider(
 
 @pytest.fixture(name='user')
 def fixture_user() -> SimpleNamespace:
-    """A minimal user stub exposing only the group_id the ACL builder reads."""
+    """A minimal user stub exposing only the group_ids the (stubbed) access engine reads."""
     return SimpleNamespace(group_ids=[GROUP_ID])
 
 
@@ -156,7 +161,7 @@ class TestQuickSearchPipelineBuilder:
 
     @pytest.fixture(autouse=True)
     def _stub_managers(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Stubs the managers build() resolves lazily: the term's ObjectsManager and the ACL TypesManager."""
+        """Stubs the managers build() resolves lazily (the term's ObjectsManager) and the access engine."""
         _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS)
 
     def test_no_join_is_part_of_the_pipeline(self) -> None:
@@ -270,7 +275,7 @@ class TestSearchPipelineBuilder:
 
     @pytest.fixture(autouse=True)
     def _stub_managers(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Stubs the managers build() resolves lazily: CategoriesManager and the ACL TypesManager."""
+        """Stubs the managers build() resolves lazily (CategoriesManager) and the access engine."""
         _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS)
 
     def test_text_param_adds_regex_match(self) -> None:
@@ -601,7 +606,7 @@ class TestTheDisjunctionMarker:
 
     @pytest.fixture(autouse=True)
     def _stub_managers(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Stubs the managers build() resolves lazily: CategoriesManager and the ACL TypesManager."""
+        """Stubs the managers build() resolves lazily (CategoriesManager) and the access engine."""
         _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS)
 
     def test_a_disjunction_marker_adds_no_stage_at_all(self) -> None:

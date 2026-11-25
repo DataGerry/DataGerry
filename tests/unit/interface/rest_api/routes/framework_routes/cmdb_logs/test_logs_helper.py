@@ -34,6 +34,7 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 from cmdb.errors.manager import BaseManagerIterationError
+from cmdb.framework.access_engine import DeniedTypes
 from cmdb.models.object_model import CmdbObject
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.log_model.log_action_enum import LogAction
@@ -403,83 +404,95 @@ class TestObjectLogExistenceQuery:
 LOG_ID: int = 900
 LOGGED_TYPE_ID: int = 7
 LOGGED_OBJECT_ID: int = 42
-READER_GROUP_ID: int = 5
-OTHER_GROUP_ID: int = 6
+REQUEST_USER_STUB: MagicMock = MagicMock()
+GONE_TYPE_ID: int = 8
+OTHER_TYPE_ID: int = 9
+
+# The listed form, and the complement an every-Type role yields - only the logged Type admitted
+DENYING_LOGGED: DeniedTypes = DeniedTypes(ids=frozenset({LOGGED_TYPE_ID}))
+DENYING_OTHER: DeniedTypes = DeniedTypes(ids=frozenset({OTHER_TYPE_ID}))
+ADMITTING_LOGGED: DeniedTypes = DeniedTypes(admitted=frozenset({LOGGED_TYPE_ID}))
 
 
-def _type_granting(group_id: int) -> dict[str, Any]:
-    """A stored type whose activated ACL grants READ to one group"""
-    return {'public_id': LOGGED_TYPE_ID, 'acl': {'activated': True, 'groups': {'includes': {str(group_id): ['READ']}}}}
+def _denial(monkeypatch: pytest.MonkeyPatch, denied: DeniedTypes) -> MagicMock:
+    """Lets the caller's READ denial be the given one; answers the stand-in to assert its call"""
+    resolve = MagicMock(return_value=denied)
+    monkeypatch.setattr(f'{HELPER_PATH}.resolve_denied_types', resolve)
 
-
-def _types_manager(stored_type: dict[str, Any] | None) -> MagicMock:
-    """A TypesManager stand-in answering one stored type (or none)"""
-    types_manager = MagicMock()
-    types_manager.get_type.return_value = stored_type
-    return types_manager
-
-
-def _reader(group_id: int = READER_GROUP_ID) -> MagicMock:
-    """A caller of one group"""
-    user = MagicMock()
-    user.group_ids = [group_id]
-    return user
+    return resolve
 
 
 def _log(type_id: Any = LOGGED_TYPE_ID) -> dict[str, Any]:
-    """A stored log stamped with a type (or without the key when None is not meant as a value)"""
+    """A stored log stamped with a type"""
     return {LogKey.PUBLIC_ID.value: LOG_ID, LogKey.TYPE_ID.value: type_id}
 
 
 class TestIsLogReadable:
-    """The single-log decision the list ACL stage makes, on the log's stamped type"""
+    """The single-log decision the list's scope filter makes, on the log's stamped type"""
 
-    def test_a_type_granting_the_caller_reads(self) -> None:
-        """The caller's group is in the type's READ list"""
-        assert is_log_readable(_log(), _reader(), _types_manager(_type_granting(READER_GROUP_ID))) is True
+    def test_a_readable_type_reads(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Another Type denied"""
+        _denial(monkeypatch, DENYING_OTHER)
 
-    def test_a_type_denying_the_caller_hides_the_log(self) -> None:
-        """An activated ACL naming another group"""
-        assert is_log_readable(_log(), _reader(), _types_manager(_type_granting(OTHER_GROUP_ID))) is False
+        assert is_log_readable(_log(), REQUEST_USER_STUB) is True
 
-    def test_the_stamped_type_is_the_one_read(self) -> None:
-        """Not the object's - the log's own type_id"""
-        types_manager = _types_manager(_type_granting(READER_GROUP_ID))
+    def test_a_denied_type_hides_the_log(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The stamped Type is listed"""
+        _denial(monkeypatch, DENYING_LOGGED)
 
-        is_log_readable(_log(), _reader(), types_manager)
+        assert is_log_readable(_log(), REQUEST_USER_STUB) is False
 
-        types_manager.get_type.assert_called_once_with(LOGGED_TYPE_ID)
+    def test_the_denial_is_the_callers_for_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """READ, for the request's user - no Type read"""
+        resolve = _denial(monkeypatch, DeniedTypes())
 
-    def test_a_log_without_a_type_is_readable_without_a_read(self) -> None:
-        """An entry the backfill could not attribute - the ACL stage lets it through too"""
-        types_manager = _types_manager(_type_granting(OTHER_GROUP_ID))
+        is_log_readable(_log(), REQUEST_USER_STUB)
 
-        assert is_log_readable(_log(None), _reader(), types_manager) is True
-        types_manager.get_type.assert_not_called()
+        resolve.assert_called_once_with(REQUEST_USER_STUB, AccessControlPermission.READ)
 
-    def test_a_log_whose_type_is_gone_is_readable(self) -> None:
-        """A deleted type denies nobody"""
-        assert is_log_readable(_log(), _reader(), _types_manager(None)) is True
+    @pytest.mark.parametrize('log', [_log(None), _log(GONE_TYPE_ID), {LogKey.PUBLIC_ID.value: LOG_ID}],
+                             ids=['null-type', 'gone-type', 'no-key'])
+    def test_no_listed_type_is_readable_while_types_are_listed(self, monkeypatch: pytest.MonkeyPatch,
+                                                                log: dict[str, Any]) -> None:
+        """A gone Type or none is in no list"""
+        _denial(monkeypatch, DENYING_LOGGED)
 
-    def test_a_type_without_an_activated_acl_reads(self) -> None:
-        """Access control is opt-in"""
-        assert is_log_readable(_log(), _reader(), _types_manager({'public_id': LOGGED_TYPE_ID})) is True
+        assert is_log_readable(log, REQUEST_USER_STUB) is True
+
+    @pytest.mark.parametrize('log', [_log(None), _log(GONE_TYPE_ID), {LogKey.PUBLIC_ID.value: LOG_ID}],
+                             ids=['null-type', 'gone-type', 'no-key'])
+    def test_every_type_restricted_hides_what_is_not_admitted(self, monkeypatch: pytest.MonkeyPatch,
+                                                               log: dict[str, Any]) -> None:
+        """Like the list: a gone Type or none is denied when only granted Types are admitted"""
+        _denial(monkeypatch, ADMITTING_LOGGED)
+
+        assert is_log_readable(log, REQUEST_USER_STUB) is False
+
+    def test_every_type_restricted_reads_an_admitted_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The granted Type stays readable"""
+        _denial(monkeypatch, ADMITTING_LOGGED)
+
+        assert is_log_readable(_log(), REQUEST_USER_STUB) is True
 
 
 class TestAbortUnlessLogReadable:
     """The 403 of a single read, /corresponding and the delete"""
 
-    def test_a_hidden_log_is_a_403_naming_it(self) -> None:
+    def test_a_hidden_log_is_a_403_naming_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The message names the log, not the object"""
+        _denial(monkeypatch, DENYING_LOGGED)
+
         with pytest.raises(HTTPException) as exc_info:
-            abort_unless_log_readable(_log(), _reader(), _types_manager(_type_granting(OTHER_GROUP_ID)))
+            abort_unless_log_readable(_log(), REQUEST_USER_STUB)
 
         assert exc_info.value.code == 403
         assert exc_info.value.description == LOG_ACCESS_DENIED_MSG.format(public_id=LOG_ID)
 
-    def test_a_readable_log_passes(self) -> None:
+    def test_a_readable_log_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """No exception"""
-        abort_unless_log_readable(_log(), _reader(), _types_manager(_type_granting(READER_GROUP_ID)))
+        _denial(monkeypatch, DENYING_OTHER)
+
+        abort_unless_log_readable(_log(), REQUEST_USER_STUB)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

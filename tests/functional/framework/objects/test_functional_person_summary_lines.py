@@ -64,6 +64,7 @@ from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_constants imp
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import IpamRight
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortRight
 from cmdb.interface.rest_api.routes.rack_routes.rack_route_constants import RackRight
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 SUBNET_OVERVIEW_URL: str = '/ipam/subnet/overview'
@@ -279,7 +280,7 @@ def _licensed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _seeded(database_manager: MongoDatabaseManager, database_name: str) -> Iterator[None]:
-    """Every seeded document; purged before and after"""
+    """Every seeded document, and the access rules the seeded type ACLs translate to; purged before and after"""
     collection = partial(database_manager.get_collection, db_name=database_name)
     seeds: dict[str, list[dict[str, Any]]] = _seeds()
 
@@ -290,9 +291,11 @@ def _seeded(database_manager: MongoDatabaseManager, database_name: str) -> Itera
     _purge()
     for name, docs in seeds.items():
         collection(name).insert_many(docs)
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], TYPE_IDS)
 
     yield
 
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

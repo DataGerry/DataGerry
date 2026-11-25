@@ -40,7 +40,12 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.object_field_defaults import usable_default
 from cmdb.framework.object_field_value_rules import FieldValueRule, PatternBudget, build_field_value_rules
 from cmdb.framework.object_required_fields import collect_required_field_names, mds_section_field_names
-from cmdb.framework.person_sync.person_sync_constants import SYNC_FILLED_PERSON_FIELDS, PersonSyncProblem
+from cmdb.framework.person_sync.person_sync_constants import (
+    PERSON_GROUP_FILLED_FIELDS,
+    SYNC_FILLED_PERSON_FIELDS,
+    GroupMappingProblem,
+    PersonSyncProblem,
+)
 from cmdb.framework.person_sync.sync_settings import GroupSyncSettings, PersonSyncSettings, UserSyncSettings
 
 from cmdb.errors.person_sync import PersonSyncTargetError
@@ -52,6 +57,8 @@ __all__: list[str] = [
     'target_type_problems',
     'usable_target_type',
     'user_sync_problems',
+    'person_group_type_problems',
+    'usable_person_group_type',
     'group_sync_problems',
     'find_sync_settings_problems',
 ]
@@ -186,30 +193,83 @@ def user_sync_problems(users: UserSyncSettings, types: dict[int, CmdbType], exis
     return problems
 
 
+def person_group_type_problems(type_id: int, type_instance: CmdbType | None) -> list[str]:
+    """
+    Judges a Type a person group is created in - the group sync's default: it exists, carries PERSON_GROUP, is
+    active and requires nothing but the name and members without a usable default
+
+    Args:
+        type_id (int): The chosen Type's id
+        type_instance (CmdbType | None): The stored Type, None when there is none
+
+    Returns:
+        list[str]: The problems; a missing Type has only that one
+    """
+    if type_instance is None:
+        return [PersonSyncProblem.TYPE_MISSING.value.format(type_id=type_id)]
+
+    if type_instance.special_type != SpecialType.PERSON_GROUP.value:
+        return [GroupMappingProblem.TYPE_NOT_PERSON_GROUP.value.format(type_id=type_id)]
+
+    problems: list[str] = []
+
+    if not type_instance.active:
+        problems.append(PersonSyncProblem.TYPE_INACTIVE.value.format(type_id=type_id))
+
+    if unfillable := unfillable_required_fields(type_instance, PERSON_GROUP_FILLED_FIELDS):
+        problems.append(PersonSyncProblem.TYPE_UNFILLABLE_FIELDS.value.format(type_id=type_id, names=unfillable))
+
+    return problems
+
+
+def usable_person_group_type(type_id: int | None, type_instance: CmdbType | None) -> CmdbType:
+    """
+    Answers the Type the group sync creates person groups in, refusing one it cannot create them in
+
+    Args:
+        type_id (int | None): The Type's id; None when no default is chosen
+        type_instance (CmdbType | None): The stored Type, None when there is none
+
+    Raises:
+        PersonSyncTargetError: When no default is chosen, it is gone or it is no longer usable
+
+    Returns:
+        CmdbType: The Type
+    """
+    if type_id is None:
+        raise PersonSyncTargetError(PersonSyncProblem.NO_DEFAULT_GROUP_TYPE.value)
+
+    if problems := person_group_type_problems(type_id, type_instance):
+        raise PersonSyncTargetError(' '.join(problems))
+
+    return type_instance
+
+
 def group_sync_problems(users: UserSyncSettings,
                         groups: GroupSyncSettings,
-                        person_group_type_exists: bool) -> list[str]:
+                        types: dict[int, CmdbType]) -> list[str]:
     """
-    Judges the user group sync: switched on only with the user sync and a Type carrying PERSON_GROUP
+    Judges the user group sync: switched on only with the user sync and a default Type; a chosen default is judged
+    whether the sync is on or not - it is used the moment the sync is switched on
 
     Args:
         users (UserSyncSettings): The user sync's settings
         groups (GroupSyncSettings): The user group sync's settings
-        person_group_type_exists (bool): Whether a Type carries PERSON_GROUP
+        types (dict[int, CmdbType]): The stored Types read for the settings, the default among them when it exists
 
     Returns:
-        list[str]: The problems; none while the group sync is off
+        list[str]: The problems; none for a sync switched off without a default
     """
-    if not groups.active:
-        return []
-
     problems: list[str] = []
 
-    if not users.active:
+    if groups.active and not users.active:
         problems.append(PersonSyncProblem.GROUPS_WITHOUT_USERS.value)
 
-    if not person_group_type_exists:
-        problems.append(PersonSyncProblem.NO_PERSON_GROUP_TYPE.value)
+    if groups.default_type_id is None:
+        if groups.active:
+            problems.append(PersonSyncProblem.NO_DEFAULT_GROUP_TYPE.value)
+    else:
+        problems += person_group_type_problems(groups.default_type_id, types.get(groups.default_type_id))
 
     return problems
 
@@ -220,8 +280,8 @@ def find_sync_settings_problems(settings: PersonSyncSettings,
     """
     Judges person sync settings before they are stored, reading what the rules need
 
-    One read of the target Types, one of the override users (only when there are overrides), one existence check of
-    a PERSON_GROUP Type (only when the group sync is switched on)
+    One read of the target Types and the group sync's default Type, one of the override users (only when there are
+    overrides)
 
     Args:
         settings (PersonSyncSettings): The settings to store
@@ -234,17 +294,17 @@ def find_sync_settings_problems(settings: PersonSyncSettings,
     Returns:
         list[str]: Every problem, the user sync's first; empty when the settings may be stored
     """
-    target_ids: list[int] = sorted(settings.users.target_type_ids())
-    types: dict[int, CmdbType] = types_manager.get_types_lookup(target_ids)
+    type_ids: set[int] = settings.users.target_type_ids()
+
+    if settings.groups.default_type_id is not None:
+        type_ids.add(settings.groups.default_type_id)
+
+    types: dict[int, CmdbType] = types_manager.get_types_lookup(sorted(type_ids))
     override_user_ids: list[int] = sorted(settings.users.type_overrides)
     existing_user_ids: set[int] = (
         set(users_manager.get_user_lookup(override_user_ids)) if override_user_ids else set()
     )
-    person_group_type_exists: bool = (
-        settings.groups.active and types_manager.check_special_type_exists(SpecialType.PERSON_GROUP)
-    )
-
     return (
         user_sync_problems(settings.users, types, existing_user_ids)
-        + group_sync_problems(settings.users, settings.groups, person_group_type_exists)
+        + group_sync_problems(settings.users, settings.groups, types)
     )

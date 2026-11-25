@@ -70,6 +70,7 @@ from cmdb.manager import (
     TypesManager,
 )
 
+from cmdb.models.access_model import ScopeOperation
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
@@ -83,6 +84,9 @@ from cmdb.models.object_model import (
     CmdbObjectMdsRowKey,
 )
 from cmdb.models.log_model.log_action_enum import LogAction
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_access_helper import (
+    abort_unless_write_allowed,
+)
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.framework.section_templates import (
     PREDEFINED_SELECT_OPTION_REJECTED,
@@ -944,7 +948,8 @@ def apply_object_insert(
 
     Raises:
         HTTPException: 400 when the ConfigItem limit is reached, the payload is unusable or an IPAM
-            invariant is violated, 403 when the IPAM license is missing, 404 when the type is unknown,
+            invariant is violated, 403 when the IPAM license is missing or the access engine refuses the create
+            (a filled field the writer may not write), 404 when the type is unknown,
             500 when the created object cannot be read back; a port clone adds its own refusals
 
     Returns:
@@ -976,6 +981,9 @@ def apply_object_insert(
 
     # Creating an IPAM special-type object (or linking a subnet on an interface) needs an IPAM license
     guard_object_write_license(types_manager, request_user, new_object_data)
+
+    # The writer may create objects of the Type and write every field it fills
+    abort_unless_write_allowed(request_user, ScopeOperation.CREATE, None, new_object_data)
 
     # Every feature's write invariants (IPAM, Rack, persons) - also canonicalises values on the candidate
     invariant_error: str | None = enforce_object_write_invariants(
@@ -1270,7 +1278,8 @@ def _validate_update_candidate(
     ``guard_object_structure``), each field has a type (backfilled from the type), no required field is empty, no
     CHANGED value breaks its field's length or pattern, every person selector holds what it may
     (``validate_person_selector_values``), the location placement is allowed (``_prepare_location_change``),
-    the IPAM licence covers an IPAM object or interface change, every feature's write invariants hold (which
+    the IPAM licence covers an IPAM object or interface change, the access engine allows the edit with every changed
+    field (``abort_unless_write_allowed``), every feature's write invariants hold (which
     also canonicalises values on the candidate), and no unknown select value extends a predefined section
     template's field
 
@@ -1282,7 +1291,8 @@ def _validate_update_candidate(
         context (ObjectWriteContext): The caller and the managers
 
     Raises:
-        HTTPException: 400 when a check refuses the candidate, 403 when the IPAM licence is missing
+        HTTPException: 400 when a check refuses the candidate, 403 when the IPAM licence is missing or the access
+            engine refuses the edit (a changed field the writer may not write)
 
     Returns:
         LocationChange | None: The placement to mirror after the write, None without a location field
@@ -1304,6 +1314,8 @@ def _validate_update_candidate(
     guard_object_write_license(
         context.types_manager, context.request_user, new_data, previous_object, object_type=current_type,
     )
+    # The writer may edit objects of the Type and write every field it changes
+    abort_unless_write_allowed(context.request_user, ScopeOperation.EDIT, previous_object, new_data)
 
     if invariant_error := enforce_object_write_invariants(
         context.objects_manager, context.types_manager, new_data, previous_object=previous_object,

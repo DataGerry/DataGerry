@@ -92,7 +92,7 @@ class CategoriesManager(GenericManager):
         try:
             types = self.get_many_from_other_collection(
                 CmdbType.COLLECTION,
-                criteria=build_permitted_types_criteria(user.group_ids, AccessControlPermission.READ),
+                criteria=build_permitted_types_criteria(user, AccessControlPermission.READ),
             )
             cmdb_types: list[CmdbType] = [CmdbType.from_data(a_type) for a_type in types]
 

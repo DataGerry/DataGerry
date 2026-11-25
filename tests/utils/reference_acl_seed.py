@@ -26,7 +26,8 @@ may not read, in every way a render resolves a reference
 
 Two users may not read HIDDEN: a member of the default user group, and an EXPORTER whose group holds the
 object export right alone - the default group may not export. The ids are written straight into the
-collections, so the tests can render or request them as they like
+collections - with the access rules the type ACLs translate to - so the tests can render or request them as
+they like
 """
 from datetime import datetime, timezone
 from typing import Any
@@ -41,6 +42,7 @@ from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.user_model import CmdbUser
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_access_seed import remove_type_access_of_types, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MAIN_TYPE_ID: int = 89301
@@ -181,6 +183,7 @@ def seed(database_manager: MongoDatabaseManager, database_name: str) -> None:
     """Writes the three types, the four objects, the exporter group and the two users."""
     purge(database_manager, database_name)
     database_manager.get_collection(CmdbType.COLLECTION, database_name).insert_many(_type_docs())
+    store_type_access(database_manager.connector.client[database_name], ALL_TYPE_IDS)
     database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_many([
         _object_doc(MAIN_ID, MAIN_TYPE_ID, _main_fields(MAIN_VALUE)),
         _object_doc(SECOND_MAIN_ID, MAIN_TYPE_ID, _main_fields(MAIN_VALUE)),
@@ -198,6 +201,7 @@ def seed(database_manager: MongoDatabaseManager, database_name: str) -> None:
 
 def purge(database_manager: MongoDatabaseManager, database_name: str) -> None:
     """Removes everything `seed` wrote."""
+    remove_type_access_of_types(database_manager.connector.client[database_name], ALL_TYPE_IDS)
     database_manager.get_collection(CmdbType.COLLECTION, database_name).delete_many(
         {'public_id': {'$in': ALL_TYPE_IDS}})
     database_manager.get_collection(CmdbObject.COLLECTION, database_name).delete_many(

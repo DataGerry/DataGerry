@@ -20,8 +20,9 @@ The chain a type update runs: the stored block (string group keys, lists of perm
 ``GroupACL`` (int keys), changed in memory (sets), and written back through ``TypesManager.update_type``. Pinned:
 
   - the block is stored again in its stored form - string keys, each permission list sorted
-  - the stored result is what both access readers decide on alike: the model (``has_type_document_access``) and
-    the query (``build_permitted_types_criteria``) grant exactly what the in-memory ACL granted
+  - the stored result is what both of the type ACL's own (frozen) readings decide on alike: the document
+    (``acl_grants_access``) and the query (``build_denied_types_criteria``) grant exactly what the in-memory ACL
+    granted - the readings the database migrations translate stored ACLs with
   - writing the same model twice stores the same block (re-run safe)
 """
 from typing import Any
@@ -33,8 +34,8 @@ from cmdb.manager import TypesManager
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.security.acl.acl_constants import AclKey
-from cmdb.security.acl.builder import build_permitted_types_criteria
-from cmdb.security.acl.helpers import has_type_document_access
+from cmdb.security.acl.builder import build_denied_types_criteria
+from cmdb.security.acl.helpers import acl_grants_access
 from cmdb.security.acl.permission import AccessControlPermission
 
 from tests.utils.ipam_doc_builders import make_type_doc
@@ -63,13 +64,6 @@ CHANGED_INCLUDES: dict[str, list[str]] = {
     str(DELETING_GROUP_ID): ['DELETE'],
     str(NEW_GROUP_ID): ['CREATE'],
 }
-
-
-class _User:
-    """Minimal stand-in for CmdbUser: the access readers read nothing but group_ids"""
-
-    def __init__(self, group_id: int) -> None:
-        self.group_ids: list[int] = [group_id]
 
 
 @pytest.fixture(name='types')
@@ -172,9 +166,11 @@ class TestWrittenBack:
         document: dict[str, Any] = types.find_one({TypeSchemaKey.PUBLIC_ID.value: TYPE_ID})
 
         in_memory: bool = cmdb_type.acl.verify_access(group_id, permission)
-        by_document: bool = has_type_document_access(document, _User(group_id), permission)
+        by_document: bool = acl_grants_access(
+            AccessControlList.from_data(document[TypeSchemaKey.ACL.value]), [group_id], permission,
+        )
         by_query: bool = types.count_documents({
-            '$and': [{TypeSchemaKey.PUBLIC_ID.value: TYPE_ID}, build_permitted_types_criteria([group_id], permission)]
-        }) == 1
+            '$and': [{TypeSchemaKey.PUBLIC_ID.value: TYPE_ID}, build_denied_types_criteria([group_id], permission)]
+        }) == 0
 
         assert in_memory == by_document == by_query

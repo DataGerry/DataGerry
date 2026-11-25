@@ -43,7 +43,7 @@ import pytest
 from requests import exceptions as requests_errors
 from werkzeug.exceptions import Forbidden, HTTPException
 
-from flask import Flask, abort
+from flask import abort
 
 import cmdb.interface.route_utils as ru
 from cmdb.interface.tenant_availability_constants import TENANT_UNAVAILABLE_RESPONSE_MESSAGE
@@ -1665,7 +1665,7 @@ class TestParseAuthorizationHeader:
         parses again rather than failing. The context check is patched rather than assumed: another
         module in the suite can leave a request context pushed.
         """
-        with patch(f'{MODULE_PATH}.has_request_context', return_value=False), \
+        with patch('cmdb.utils.request_scoped_cache.has_request_context', return_value=False), \
              patch(f'{MODULE_PATH}._validate_bearer', return_value='sometoken') as mocked:
             assert ru.parse_authorization_header(BEARER_HEADER) == 'sometoken'
             assert ru.parse_authorization_header(BEARER_HEADER) == 'sometoken'
@@ -1722,7 +1722,7 @@ class TestDecodeRequestToken:
 
     def test_without_a_request_it_still_decodes(self) -> None:
         """No request to scope a cache to is not an error - it just decodes every time"""
-        with patch(f'{MODULE_PATH}.has_request_context', return_value=False), \
+        with patch('cmdb.utils.request_scoped_cache.has_request_context', return_value=False), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
 
@@ -1885,7 +1885,7 @@ class TestValidateBearer:
         `_validate_bearer` hands its already-decoded claims to the request cache so the decorators
         do not decode again; called outside a request there is no cache to hand them to.
         """
-        with patch(f'{MODULE_PATH}.has_request_context', return_value=False), \
+        with patch('cmdb.utils.request_scoped_cache.has_request_context', return_value=False), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
             with stub_cmdb_app().test_request_context():
@@ -2001,38 +2001,3 @@ class TestNoNestedAppContext:
         ]
 
         assert not pushes
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                    request_cache                                                     #
-# -------------------------------------------------------------------------------------------------------------------- #
-REQUEST_CACHE_KEY: str = 'dg_test_cache'
-OTHER_REQUEST_CACHE_KEY: str = 'dg_test_other_cache'
-
-
-class TestRequestCache:
-    """One dict per key and request - the token parse and the webhook reads keep their per-request answers in it"""
-
-    def test_outside_a_request_there_is_no_cache(self) -> None:
-        """A CLI path or a direct call caches nothing"""
-        assert ru.request_cache(REQUEST_CACHE_KEY) is None
-
-    def test_the_same_key_answers_the_same_dict_within_a_request(self) -> None:
-        """Created on first use, then kept"""
-        with Flask(__name__).test_request_context('/'):
-            first = ru.request_cache(REQUEST_CACHE_KEY)
-            first['answer'] = 1
-
-            assert ru.request_cache(REQUEST_CACHE_KEY) is first
-            assert ru.request_cache(OTHER_REQUEST_CACHE_KEY) == {}
-
-    def test_a_new_request_starts_empty(self) -> None:
-        """Nothing outlives its request"""
-        app = Flask(__name__)
-
-        with app.test_request_context('/'):
-            ru.request_cache(REQUEST_CACHE_KEY)['answer'] = 1
-
-        with app.test_request_context('/'):
-            assert ru.request_cache(REQUEST_CACHE_KEY) == {}
-

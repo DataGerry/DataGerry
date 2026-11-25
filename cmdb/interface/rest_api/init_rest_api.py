@@ -207,6 +207,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     _register_documents_and_ai(app)
     _register_relations(app)
     _register_user_management(app)
+    _register_access(app)
     _register_import_export(app)
     _register_reports_and_webhooks(app)
     _register_isms(app)
@@ -382,6 +383,29 @@ def _register_user_management(app: BaseCmdbApp) -> None:
     app.register_blueprint(person_sync_blueprint, url_prefix='/person_sync')
     app.register_blueprint(user_person_blueprint, url_prefix='/users/<int:user_id>/person')
 
+
+def _register_access(app: BaseCmdbApp) -> None:
+    """
+    Mounts the access rules: field classes, scope roles and assignments under ``/access``, the type ACL
+    migration report and the assignments of one Type
+
+    Not licence-gated - every edition carries them
+
+    Args:
+        app (BaseCmdbApp): Flask app the blueprints are mounted on
+    """
+    # pylint: disable=import-outside-toplevel
+    from cmdb.interface.rest_api.routes.access_routes.field_class_routes import field_classes_blueprint
+    from cmdb.interface.rest_api.routes.access_routes.scope_role_routes import scope_roles_blueprint
+    from cmdb.interface.rest_api.routes.access_routes.assignment_routes import assignments_blueprint
+    from cmdb.interface.rest_api.routes.access_routes.migration_report_routes import migration_report_blueprint
+    from cmdb.interface.rest_api.routes.access_routes.type_assignment_routes import access_types_blueprint
+
+    app.register_blueprint(field_classes_blueprint, url_prefix='/access/field_classes')
+    app.register_blueprint(scope_roles_blueprint, url_prefix='/access/scope_roles')
+    app.register_blueprint(assignments_blueprint, url_prefix='/access/assignments')
+    app.register_blueprint(migration_report_blueprint, url_prefix='/access/migration_report')
+    app.register_blueprint(access_types_blueprint, url_prefix='/access/types')
 
 def _register_import_export(app: BaseCmdbApp) -> None:
     """

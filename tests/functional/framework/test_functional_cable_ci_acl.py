@@ -48,6 +48,7 @@ from tests.functional.framework.test_functional_port_connection_route import (  
     _ipam_licensed,
     fixture_seeded,
 )
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 SECRET_NAME: str = 'SECRET-CABLE'
@@ -102,11 +103,14 @@ def fixture_connection_id(rest_api, database_manager: MongoDatabaseManager, data
 
 @pytest.fixture(name='denied')
 def fixture_denied(database_manager: MongoDatabaseManager, database_name: str) -> Iterator[None]:
-    """The Cable type's READ denied to the requesting admin's group"""
+    """The Cable type's READ denied to the requesting admin's group - also as the access rules the ACL translates to"""
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     types.update_one({'public_id': CABLE_TYPE_ID}, {'$set': {'acl': DENIED_ACL}})
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], [CABLE_TYPE_ID])
 
     yield
+
+    remove_type_access(database_manager.connector.client[database_name], access)
 
 
 def _url(name: str, connection_id: int) -> str:

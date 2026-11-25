@@ -30,6 +30,7 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.webhooks_event_manager import WebhooksEventManager
 from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
 from cmdb.models.webhook_model.webhook_event_constants import OBJECT_VALUE_KEYS, WEBHOOK_EVENT_SUMMARY_KEYS
+from cmdb.framework.access_engine import DeniedTypes
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_access import build_event_masking_stage
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_summary import build_event_list_criteria
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -69,7 +70,7 @@ def fixture_manager(database_manager: MongoDatabaseManager, database_name: str) 
 def _iterate(manager: WebhooksEventManager, caller: list[dict[str, Any]], limit: int = 0) -> tuple[list[Any], int]:
     """Runs the list's criteria - mask on the denied type, the caller's stages, the summary - through the manager."""
     own: list[dict[str, Any]] = [{'$match': {'public_id': {'$in': EVENT_IDS}}}, *caller]
-    criteria = build_event_list_criteria(build_event_masking_stage([DENIED_TYPE_ID]), own)
+    criteria = build_event_list_criteria(build_event_masking_stage(DeniedTypes(ids=frozenset({DENIED_TYPE_ID}))), own)
 
     return manager.iterate_query(BuilderParameters(criteria=criteria, limit=limit, sort='public_id', order=1))
 

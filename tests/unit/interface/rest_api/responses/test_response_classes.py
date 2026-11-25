@@ -315,6 +315,22 @@ class TestDeleteSingleResponse:
         """Which is why the key is nullable in the frontend model"""
         assert DeleteSingleResponse().make_response().status_code == 204
 
+    def test_extra_keys_sit_next_to_the_raw_document(self) -> None:
+        """What went with the resource; none by default"""
+        payload = loads(DeleteSingleResponse(DOCUMENT, extra={UPDATE_EXTRA_KEY: UPDATE_EXTRA_VALUE})
+                        .make_response().get_data())
+
+        assert (payload[UPDATE_EXTRA_KEY], payload[ResponseKey.RAW.value]) == (UPDATE_EXTRA_VALUE, DOCUMENT)
+        assert UPDATE_EXTRA_KEY not in loads(DeleteSingleResponse(DOCUMENT).make_response().get_data())
+
+    def test_extra_never_overrides_the_raw_document_or_the_envelope(self) -> None:
+        """An extra key spelt like `raw` or `response_type` loses to the real one"""
+        clashing = {ResponseKey.RAW.value: 'x', ResponseKey.RESPONSE_TYPE.value: 'x'}
+        payload = loads(DeleteSingleResponse(DOCUMENT, extra=clashing).make_response().get_data())
+
+        assert (payload[ResponseKey.RAW.value], payload[ResponseKey.RESPONSE_TYPE.value]) == (
+            DOCUMENT, OperationType.DELETE.value)
+
 
 class TestDefaultResponse:
     """Anything that is just a value - no envelope, the value itself."""

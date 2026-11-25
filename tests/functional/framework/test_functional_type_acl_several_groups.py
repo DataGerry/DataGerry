@@ -35,6 +35,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.type_constants import TypeRight
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RIGHTS_GROUP_ID: int = 89701
@@ -70,7 +71,10 @@ def _caller(group_ids: list[int]) -> CmdbUser:
 
 @pytest.fixture(name='seeded')
 def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
-    """The two groups, the caller in both, the two Types and an object of the readable one - removed afterwards"""
+    """
+    The two groups, the caller in both, the two Types (with the access rules their ACLs translate to) and an object of
+    the readable one - removed afterwards
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
     groups = database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name)
@@ -93,7 +97,9 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
     ])
     users.insert_one({'public_id': CALLER_ID, 'user_name': CALLER_NAME, 'active': True, 'group_ids': GROUP_IDS,
                       'registration_time': datetime.now(timezone.utc)})
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], TYPE_IDS)
     yield users
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

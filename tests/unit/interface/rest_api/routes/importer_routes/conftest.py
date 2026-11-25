@@ -18,6 +18,7 @@ Shared fixtures for the importer-route unit tests
 """
 import pytest
 
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 from tests.utils.type_import_builders import HELPER
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -41,3 +42,15 @@ def fixture_stub_side_effects(monkeypatch) -> dict[str, list]:
     )
 
     return calls
+
+
+@pytest.fixture(name='no_type_restricted', autouse=True)
+def fixture_no_type_restricted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Lets the access engine answer from no Type ACL - every Type unrestricted, no database read
+
+    The import steps judge the stored Type (and the importer's rights on it) through the access engine, which reads
+    the stored grants through the ManagerProvider. A test judging a Type's ACL registers the Types it judges
+    (``decide_by_type_acls``), which replaces this
+    """
+    decide_by_type_acls(monkeypatch, [])

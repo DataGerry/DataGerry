@@ -80,12 +80,16 @@ class UserSyncSettings:
 @dataclass(frozen=True)
 class GroupSyncSettings:
     """
-    The user group sync: its switch. Which user group a person group mirrors is stored on the person group object
+    The user group sync: its switch and the PERSON_GROUP Type every user group's person group is created in. Which user
+    group a person group mirrors is stored on the person group object
 
     Attributes:
-        active (bool): Whether user groups are mirrored into their mapped person groups
+        active (bool): Whether user groups are mirrored into their person groups
+        default_type_id (int | None): The PERSON_GROUP Type a user group's person group is created in; None until one
+            is chosen. A change applies to person groups created afterwards - the existing ones stay where they are
     """
     active: bool = False
+    default_type_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -141,7 +145,8 @@ def settings_from_document(document: dict[str, Any] | None) -> PersonSyncSetting
             default_type_id=users.get(PersonSyncKey.DEFAULT_TYPE_ID.value),
             type_overrides=_overrides_from_entries(users.get(PersonSyncKey.TYPE_OVERRIDES.value)),
         ),
-        groups=GroupSyncSettings(active=groups.get(PersonSyncKey.ACTIVE.value) is True),
+        groups=GroupSyncSettings(active=groups.get(PersonSyncKey.ACTIVE.value) is True,
+                                 default_type_id=groups.get(PersonSyncKey.DEFAULT_TYPE_ID.value)),
     )
 
 
@@ -166,6 +171,7 @@ def settings_to_document(settings: PersonSyncSettings) -> dict[str, Any]:
         },
         PersonSyncKey.GROUPS.value: {
             PersonSyncKey.ACTIVE.value: settings.groups.active,
+            PersonSyncKey.DEFAULT_TYPE_ID.value: settings.groups.default_type_id,
         },
     }
 

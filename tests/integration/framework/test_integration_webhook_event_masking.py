@@ -18,7 +18,8 @@ Integration tests for the webhook-log masking stage, against a real MongoDB and 
 
 The stage the list route puts first, run by ``WebhooksEventManager.iterate_items`` with a caller's ``$match`` after
 it. Pinned: a denied event's values come back null while its row is kept, the caller's stage cannot find it by a
-field value - neither in the rows nor in the total - and an allowed event is untouched
+field value - neither in the rows nor in the total - and an allowed event is untouched. With every Type restricted
+(the complement form), an event of a gone Type or without one is masked too
 """
 from typing import Any
 
@@ -28,6 +29,7 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.webhooks_event_manager import WebhooksEventManager
 from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
+from cmdb.framework.access_engine import DeniedTypes
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_access import build_event_masking_stage
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -36,6 +38,9 @@ ALLOWED_TYPE_ID: int = 98202
 DENIED_EVENT_ID: int = 98211
 ALLOWED_EVENT_ID: int = 98212
 EVENT_IDS: list[int] = [DENIED_EVENT_ID, ALLOWED_EVENT_ID]
+GONE_TYPE_ID: int = 98209
+GONE_EVENT_ID: int = 98213
+UNKNOWN_EVENT_ID: int = 98214
 SECRET_VALUE: str = 'masked-in-the-pipeline'
 
 
@@ -63,7 +68,7 @@ def fixture_manager(database_manager: MongoDatabaseManager, database_name: str):
 def _iterate(manager: WebhooksEventManager, *stages: dict[str, Any]) -> tuple[dict[int, Any], int]:
     """The seeded events the stages answer, by public_id, and the total"""
     criteria: list[dict[str, Any]] = [
-        build_event_masking_stage([DENIED_TYPE_ID]),
+        build_event_masking_stage(DeniedTypes(ids=frozenset({DENIED_TYPE_ID}))),
         {'$match': {'public_id': {'$in': EVENT_IDS}}},
         *stages,
     ]
@@ -89,3 +94,24 @@ def test_a_later_match_on_a_masked_value_cannot_find_it(manager) -> None:
 
     assert set(events) == {ALLOWED_EVENT_ID}
     assert total == 1
+
+
+def test_every_type_restricted_masks_a_gone_or_unknown_type(manager, database_manager: MongoDatabaseManager,
+                                                             database_name: str) -> None:
+    """The complement form: only an admitted Type keeps its values - an event of a gone Type, or without one, is
+    masked like a denied one"""
+    events = database_manager.get_collection(CmdbWebhookEvent.COLLECTION, database_name)
+    unknown: dict[str, Any] = _event(UNKNOWN_EVENT_ID, ALLOWED_TYPE_ID) | {'object_before': None, 'object_after': None}
+    events.insert_many([_event(GONE_EVENT_ID, GONE_TYPE_ID), unknown])
+
+    try:
+        result = manager.iterate_items(BuilderParameters(criteria=[
+            build_event_masking_stage(DeniedTypes(admitted=frozenset({ALLOWED_TYPE_ID}))),
+            {'$match': {'public_id': {'$in': [*EVENT_IDS, GONE_EVENT_ID, UNKNOWN_EVENT_ID]}}},
+        ], limit=0))
+    finally:
+        events.delete_many({'public_id': {'$in': [GONE_EVENT_ID, UNKNOWN_EVENT_ID]}})
+
+    kept: set[int] = {event.public_id for event in result.results if event.changes is not None}
+    assert result.total == len(EVENT_IDS) + 2
+    assert kept == {ALLOWED_EVENT_ID}

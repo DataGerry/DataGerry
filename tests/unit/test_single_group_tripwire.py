@@ -18,9 +18,9 @@ Tripwire: nothing in ``cmdb/`` reads a single ``group_id`` attribute
 
 A CmdbUser is a member of one or more groups (``group_ids``); its old single ``group_id`` is gone from the document,
 the API and the model. A reader that took one group - the rights, the type ACL, a guard - would quietly judge a user
-in several groups by one of them. The only ``group_id`` attribute left is the group delete's MOVE target
-(``GroupDeletionParameters.group_id``), which names a group, not a user's membership; it is read where the parameters
-are built and in the delete route.
+in several groups by one of them. The ``group_id`` attributes left name a group, not a user's membership: the group
+delete's MOVE target (``GroupDeletionParameters.group_id``), read where the parameters are built and in the delete
+route, and the one user group an access assignment grants (``CmdbAccessAssignment.group_id``).
 
 Read with ``ast``, so every module is covered whether or not a test imports it. The migrations are left out: their
 literals are frozen and they run on data stored before ``group_ids``.
@@ -43,6 +43,10 @@ ALLOWED_READS: dict[tuple[str, str], str] = {
         'GroupDeletionParameters sets its MOVE target',
     ('interface/rest_api/responses/response_parameters/group_parameters.py', 'parameters'):
         'GroupDeletionParameters serialises its MOVE target',
+    ('models/access_model/cmdb_access_assignment.py', 'self'):
+        'an assignment grants one user group - it names a group, not a membership',
+    ('models/access_model/cmdb_access_assignment.py', 'instance'):
+        'an assignment serialises the one user group it grants',
 }
 
 

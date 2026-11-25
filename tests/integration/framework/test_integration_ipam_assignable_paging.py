@@ -40,6 +40,7 @@ from cmdb.models.object_model import CmdbObject
 from cmdb.models.special_type_model.ipam_constants import IpamOverviewKey, IpamSection
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Every test here reaches the database through ManagerProvider, which reads the REST app's context
@@ -82,7 +83,10 @@ def _object_doc(public_id: int, type_id: int, **extra: Any) -> dict[str, Any]:
 
 @pytest.fixture(autouse=True)
 def _seed(database_manager: MongoDatabaseManager, database_name: str):
-    """Only this module's IPAM-capable types and candidates, in a clean slate"""
+    """
+    Only this module's IPAM-capable types (with the access rules their ACLs translate to) and candidates, in a clean
+    slate
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
     stashed_types: list[dict[str, Any]] = list(types.find({'render_meta.sections.name': IpamSection.INTERFACE}))
@@ -109,7 +113,10 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
         *[_object_doc(public_id, OPEN_TYPE_ID) for public_id in OPEN_OBJECT_IDS[1:]],
         *[_object_doc(public_id, HIDDEN_TYPE_ID) for public_id in HIDDEN_OBJECT_IDS],
     ])))
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [OPEN_TYPE_ID, HIDDEN_TYPE_ID])
     yield
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
     if stashed_types:
         types.insert_many(stashed_types)

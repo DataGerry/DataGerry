@@ -82,6 +82,8 @@ ON: PersonSyncSettings = PersonSyncSettings(
                            type_overrides={OVERRIDE_USER_ID: OVERRIDE_TYPE_ID}),
     groups=GroupSyncSettings(active=True),
 )
+WITH_DEFAULT: PersonSyncSettings = PersonSyncSettings(
+    users=ON.users, groups=GroupSyncSettings(active=True, default_type_id=GROUP_TYPE_ID))
 
 
 def _user(public_id: int = USER_ID, **overrides: Any) -> CmdbUser:
@@ -311,6 +313,71 @@ class TestTheMappedGroups:
         group = db[CmdbObject.COLLECTION].find_one({'public_id': MAPPED_GROUP_ID})
         assert _values(group) == {PersonGroupField.NAME.value: 'old name',
                                   PersonGroupField.MEMBERS.value: [HAND_PERSON_ID]}
+
+
+class TestANewPersonGroup:
+    """An unmapped user group gets its person group in the group sync's default Type."""
+
+    @staticmethod
+    def _other_group() -> CmdbUserGroup:
+        """The user group nothing is mapped to"""
+        return CmdbUserGroup(public_id=OTHER_USER_GROUP_ID, name='other', label='Other')
+
+    def test_it_is_created_named_linked_and_filled(self, db: Any, database_manager: MongoDatabaseManager,
+                                                   database_name: str) -> None:
+        """In the default Type; the label as name; the user group's users' persons as members"""
+        member = _user(group_ids=[OTHER_USER_GROUP_ID])
+        _store_user(db, member)
+        _sync(_context(database_manager, database_name, PersonSyncSettings(users=ON.users)), member)
+
+        result = sync_user_group(_context(database_manager, database_name, WITH_DEFAULT), WriteLedger(),
+                                 self._other_group())
+
+        created = db[CmdbObject.COLLECTION].find_one({'system_ref': {'kind': 'user_group', 'id': OTHER_USER_GROUP_ID}})
+        assert (created['type_id'], created['public_id'] in result.created) == (GROUP_TYPE_ID, True)
+        assert _values(created) == {PersonGroupField.NAME.value: 'Other',
+                                    PersonGroupField.MEMBERS.value: [_person(db)['public_id']]}
+
+    def test_a_mapped_user_group_gets_no_second_one(self, db: Any, database_manager: MongoDatabaseManager,
+                                                    database_name: str) -> None:
+        """Only its name and members follow"""
+        result = sync_user_group(_context(database_manager, database_name, WITH_DEFAULT), WriteLedger(),
+                                 CmdbUserGroup(public_id=USER_GROUP_ID, name='service-desk', label=USER_GROUP_LABEL))
+
+        assert result.created == []
+        assert db[CmdbObject.COLLECTION].count_documents({'system_ref.kind': 'user_group',
+                                                          'system_ref.id': USER_GROUP_ID}) == 1
+
+    @pytest.mark.parametrize('groups', [GroupSyncSettings(active=True),
+                                        GroupSyncSettings(active=True, default_type_id=DEFAULT_TYPE_ID)],
+                             ids=['no-default', 'a-person-type'])
+    def test_an_unusable_default_writes_nothing(self, db: Any, database_manager: MongoDatabaseManager,
+                                                database_name: str, groups: GroupSyncSettings) -> None:
+        """PersonSyncTargetError before the insert"""
+        settings = PersonSyncSettings(users=ON.users, groups=groups)
+
+        with pytest.raises(PersonSyncTargetError):
+            sync_user_group(_context(database_manager, database_name, settings), WriteLedger(), self._other_group())
+
+        assert db[CmdbObject.COLLECTION].count_documents({'system_ref.kind': 'user_group',
+                                                          'system_ref.id': OTHER_USER_GROUP_ID}) == 0
+
+    def test_the_undo_removes_it(self, db: Any, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The insert is in the ledger"""
+        ledger = WriteLedger()
+        sync_user_group(_context(database_manager, database_name, WITH_DEFAULT), ledger, self._other_group())
+
+        assert not ledger.undo()
+        assert db[CmdbObject.COLLECTION].count_documents({'system_ref.kind': 'user_group',
+                                                          'system_ref.id': OTHER_USER_GROUP_ID}) == 0
+
+    def test_with_the_group_sync_off_nothing_is_created(self, db: Any, database_manager: MongoDatabaseManager,
+                                                        database_name: str) -> None:
+        """The default chosen, the switch off"""
+        settings = PersonSyncSettings(users=ON.users, groups=GroupSyncSettings(default_type_id=GROUP_TYPE_ID))
+
+        assert sync_user_group(_context(database_manager, database_name, settings), WriteLedger(),
+                               self._other_group()) == SyncResult()
 
 
 class TestTheBatches:

@@ -18,8 +18,9 @@ Functional tests of what the user sync keeps from being deleted or changed benea
 
 Over HTTP: a linked person is not deleted - single, bulk (all or nothing) or through ``/persons``; a mapped person
 group only while the group sync is off; an ordinary person goes. An empty target Type is not deleted, another empty
-PERSON Type is. A target Type's update may not deactivate it or require a first name again; an update that keeps it
-usable, and any update of another Type, goes through
+PERSON Type is; the user group sync's default Type is not deleted either. A target Type's update may not deactivate it
+or require a first name again, the group default's may not deactivate it; an update that keeps it usable, and any
+update of another Type, goes through
 """
 from http import HTTPStatus
 from typing import Any, Iterator
@@ -47,7 +48,10 @@ TARGET_TYPE_ID: int = 9601
 GROUP_TYPE_ID: int = 9602
 EMPTY_TARGET_TYPE_ID: int = 9603
 EMPTY_OTHER_TYPE_ID: int = 9604
-TYPE_IDS: list[int] = [TARGET_TYPE_ID, GROUP_TYPE_ID, EMPTY_TARGET_TYPE_ID, EMPTY_OTHER_TYPE_ID]
+EMPTY_GROUP_TYPE_ID: int = 9605
+TYPE_IDS: list[int] = [
+    TARGET_TYPE_ID, GROUP_TYPE_ID, EMPTY_TARGET_TYPE_ID, EMPTY_OTHER_TYPE_ID, EMPTY_GROUP_TYPE_ID,
+]
 SYNCED_PERSON_ID: int = 9611
 HAND_PERSON_ID: int = 9612
 MAPPED_GROUP_ID: int = 9613
@@ -59,6 +63,8 @@ PERSON_DELETE_MESSAGE: str = 'cannot be deleted while it is linked'
 GROUP_DELETE_MESSAGE: str = 'cannot be deleted while the user group sync is on'
 TYPE_DELETE_MESSAGE: str = 'is a target of the user sync and cannot be deleted'
 TYPE_CHANGE_MESSAGE: str = 'must stay one the sync can write into'
+GROUP_DEFAULT_DELETE_MESSAGE: str = "is the user group sync's default Type and cannot be deleted"
+GROUP_DEFAULT_CHANGE_MESSAGE: str = 'must stay one it can create person groups in'
 
 
 def _object(public_id: int, type_id: int, marker: SpecialType, fields: dict[str, Any],
@@ -78,11 +84,12 @@ def _object(public_id: int, type_id: int, marker: SpecialType, fields: dict[str,
 
 
 def _settings(group_sync: bool) -> PersonSyncSettings:
-    """The user sync writing into TARGET_TYPE_ID, EMPTY_TARGET_TYPE_ID as the admin's override"""
+    """The user sync writing into TARGET_TYPE_ID, EMPTY_TARGET_TYPE_ID as the admin's override; the group sync's
+    default EMPTY_GROUP_TYPE_ID"""
     return PersonSyncSettings(
         users=UserSyncSettings(active=True, default_type_id=TARGET_TYPE_ID,
                                type_overrides={USER_ID: EMPTY_TARGET_TYPE_ID}),
-        groups=GroupSyncSettings(active=group_sync),
+        groups=GroupSyncSettings(active=group_sync, default_type_id=EMPTY_GROUP_TYPE_ID),
     )
 
 
@@ -91,7 +98,8 @@ def fixture_db(database_manager: MongoDatabaseManager, database_name: str) -> It
     """The Types, a synced person, a person by hand and a mapped group; the user and group sync on"""
     database = database_manager.connector.client[database_name]
     markers = {TARGET_TYPE_ID: SpecialType.PERSON, GROUP_TYPE_ID: SpecialType.PERSON_GROUP,
-               EMPTY_TARGET_TYPE_ID: SpecialType.PERSON, EMPTY_OTHER_TYPE_ID: SpecialType.PERSON}
+               EMPTY_TARGET_TYPE_ID: SpecialType.PERSON, EMPTY_OTHER_TYPE_ID: SpecialType.PERSON,
+               EMPTY_GROUP_TYPE_ID: SpecialType.PERSON_GROUP}
 
     for type_id, marker in markers.items():
         document = build_default_person_type(marker, f'fn-sync-guard-{type_id}', type_id)
@@ -176,6 +184,11 @@ class TestTypeDeletes:
         """No target, no guard"""
         assert rest_api.delete(f'/types/{EMPTY_OTHER_TYPE_ID}').status_code == HTTPStatus.ACCEPTED
 
+    def test_the_group_sync_default_is_not_deleted(self, rest_api, db: Any) -> None:
+        """Empty, but chosen"""
+        _refused(rest_api.delete(f'/types/{EMPTY_GROUP_TYPE_ID}'), GROUP_DEFAULT_DELETE_MESSAGE)
+        assert _exists(db, CmdbType.COLLECTION, EMPTY_GROUP_TYPE_ID)
+
 
 class TestTypeChanges:
     """A target stays one the sync can write into."""
@@ -227,3 +240,15 @@ class TestTypeChanges:
         _refused(self._put(rest_api, EMPTY_OTHER_TYPE_ID, lambda payload: payload.update(active=False)),
                  TYPE_CHANGE_MESSAGE)
         assert db[CmdbType.COLLECTION].find_one({'public_id': EMPTY_OTHER_TYPE_ID})['active'] is True
+
+    def test_deactivating_the_group_sync_default_is_refused(self, rest_api, db: Any) -> None:
+        """It could no longer take person groups"""
+        _refused(self._put(rest_api, EMPTY_GROUP_TYPE_ID, lambda payload: payload.update(active=False)),
+                 GROUP_DEFAULT_CHANGE_MESSAGE)
+        assert db[CmdbType.COLLECTION].find_one({'public_id': EMPTY_GROUP_TYPE_ID})['active'] is True
+
+    def test_a_usable_change_of_the_group_sync_default_goes_through(self, rest_api, db: Any) -> None:
+        """A new label"""
+        response = self._put(rest_api, EMPTY_GROUP_TYPE_ID, lambda payload: payload.update(label='Teams'))
+
+        assert response.status_code == HTTPStatus.ACCEPTED

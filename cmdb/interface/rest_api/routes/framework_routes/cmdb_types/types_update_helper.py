@@ -32,12 +32,11 @@ from flask import abort
 from pymongo.results import UpdateResult
 
 from cmdb.utils import keep_omitted_keys
-from cmdb.manager import GroupsManager, TypesManager
-from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+from cmdb.manager import TypesManager
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
 
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import abort_if_unknown_acl_groups
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import guard_updated_acl
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_guard_helper import (
     guard_field_identifier_change,
     guard_location_field_removal,
@@ -118,7 +117,7 @@ def prepare_type_update_payload(data: dict[str, Any], old_type: CmdbType, reques
        when its field leaves, and the stale names a stored Type carries are dropped
     4. the identifier, structure, pattern and default rules of the create - for identifiers and patterns only what
        the update adds or changes, a stored one passes
-    5. a UserGroup the ``acl`` names must exist, unless the stored ``acl`` already names it
+    5. the ``acl`` may only be sent as the Type answers it, and the stored block is kept (``guard_updated_acl``)
 
     Args:
         data (dict[str, Any]): The validated update payload, changed in place
@@ -152,8 +151,7 @@ def prepare_type_update_payload(data: dict[str, Any], old_type: CmdbType, reques
     guard_field_patterns(data, old_type)
     guard_field_defaults(data)
 
-    groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
-    abort_if_unknown_acl_groups(data, groups_manager, CmdbType.to_json(old_type).get(TypeSchemaKey.ACL.value))
+    guard_updated_acl(data, old_type, request_user)
 
     return dropped_claims
 

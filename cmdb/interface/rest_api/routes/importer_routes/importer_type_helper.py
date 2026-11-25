@@ -71,10 +71,8 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.type_model.type_structure_repairs import drop_unresolvable_references
 from cmdb.framework.importer.importer_constants import ImportNoun
-from cmdb.framework.importer.responses.import_report_response import (
-    ImportReportResponse,
-    build_import_summary_message,
-)
+from cmdb.framework.importer.responses.import_report_response import build_import_summary_message
+from cmdb.framework.access_engine import acl_is_activated
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_locked
@@ -98,8 +96,12 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_repairs import
     strip_uploaded_public_id,
     normalize_imported_type,
 )
-from cmdb.interface.rest_api.routes.importer_routes.importer_type_messages import TypeImportFailedMessage
+from cmdb.interface.rest_api.routes.importer_routes.importer_type_messages import (
+    TypeImportFailedMessage,
+    TypeImportReportResponse,
+)
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
+    ACCESS_NOT_IMPORTED_NOTE,
     IMPORT_UPDATE_PRESERVED_FIELDS,
     TypeImporterFormField,
     TypeImportError,
@@ -432,7 +434,7 @@ def _repair_entry(
 
     Args:
         type_entry (dict[str, Any]): A single entry of the uploaded payload, modified in place
-        types_manager (TypesManager): Manager used by the reference and ACL repairs
+        types_manager (TypesManager): Manager used by the reference repair
         section_templates_manager (SectionTemplatesManager): Manager used by the template repair
 
     Returns:
@@ -459,11 +461,11 @@ def read_type_to_update(
     Reads the stored CmdbType an update entry addresses, if the importer may touch it
 
     Runs before the rules and the repairs: an entry naming a Type that does not exist here has
-    nothing to be judged against and no reason to cost the four queries the rules and repairs
+    nothing to be judged against and no reason to cost the queries the rules and repairs
     otherwise spend. The result is also what the guards and the side effects diff against later
 
-    A stored Type the importer's group may not READ is refused here too - judged on the STORED ACL, never
-    the uploaded one, so an upload cannot rewrite the ACL that keeps the importer out
+    A stored Type the importer's groups may not view is refused here too - judged by the access rules, never by
+    the upload, whose ``acl`` is not imported
 
     Args:
         type_entry (dict[str, Any]): A single entry of the uploaded payload
@@ -497,7 +499,7 @@ def read_type_to_update(
 def run_type_import_batch(
     type_entries: list[Any],
     import_entry: Callable[[Any], str | None],
-) -> ImportReportResponse:
+) -> TypeImportReportResponse:
     """
     Imports every uploaded entry on its own and collects the outcomes into one partial report
 
@@ -522,9 +524,11 @@ def run_type_import_batch(
             route's tail lets it through to the app's handlers (503 / 423)
 
     Returns:
-        ImportReportResponse: The summary line, the imported count and the failure messages of the batch
+        TypeImportReportResponse: The summary line, the imported count, the failure messages of the batch and how
+            many imported entries carried an activated ``acl`` that was not imported
     """
     success_count: int = 0
+    access_not_imported: int = 0
     failed_imports: list[TypeImportFailedMessage] = []
 
     for type_entry in type_entries:
@@ -542,11 +546,18 @@ def run_type_import_batch(
             failed_imports.append(TypeImportFailedMessage(failed_type=provided, errors=[import_error]))
         else:
             success_count += 1
+            access_not_imported += int(isinstance(provided, dict) and acl_is_activated(provided))
 
-    return ImportReportResponse(
-        message=build_import_summary_message(success_count, len(failed_imports), ImportNoun.TYPE),
+    message: str = build_import_summary_message(success_count, len(failed_imports), ImportNoun.TYPE)
+
+    if access_not_imported:
+        message += ACCESS_NOT_IMPORTED_NOTE.format(count=access_not_imported)
+
+    return TypeImportReportResponse(
+        message=message,
         success_imports=success_count,
         failed_imports=failed_imports,
+        access_not_imported=access_not_imported,
     )
 
 
@@ -554,7 +565,7 @@ def run_type_import_request(
     source_request: Request,
     request_user: CmdbUser,
     import_entry: TypeImportEntryStep,
-) -> ImportReportResponse:
+) -> TypeImportReportResponse:
     """
     Performs the request-level work both type-import routes do, around the per-entry step that differs
 
@@ -576,7 +587,8 @@ def run_type_import_request(
         HTTPException: 400 if the upload is missing or unusable (raised by parse_uploaded_types)
 
     Returns:
-        ImportReportResponse: The summary line, the imported count and the failures of the batch
+        TypeImportReportResponse: The summary line, the imported count, the failures of the batch and the count of
+            ACLs not imported
     """
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
     section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
@@ -728,8 +740,8 @@ def update_type_from_entry(
     sections wholesale, so the replacement has to be as sound as a new type - plus the rules that
     need the stored type (`stored_type_update_blocker`), checked once it has been read
 
-    A stored Type the caller's groups may not READ is refused like every other bad entry - judged on the stored
-    ACL, so an upload cannot rewrite the ACL that keeps it out
+    A stored Type the caller's groups may not view is refused like every other bad entry - judged by the access
+    rules; the upload's ``acl`` is not imported, the stored block stays
 
     The type is read before it is written: `apply_import_update_side_effects` needs the pre-update
     state to work out what changed, and that read doubles as the existence check (the update does not

@@ -51,6 +51,9 @@ from cmdb.manager.manager_provider_model.manager_type_enum import ManagerType
 from cmdb.manager import (
     CategoriesManager,
     CiExplorerProfileManager,
+    FieldClassesManager,
+    ScopeRolesManager,
+    AccessAssignmentsManager,
     DocapiTemplatesManager,
     LogsManager,
     UsersManager,
@@ -106,6 +109,9 @@ LOGGER: Logger = getLogger(__name__)
 MANAGER_CLASSES: dict[ManagerType, Any] = {
     ManagerType.CATEGORIES: CategoriesManager,
     ManagerType.CI_EXPLORER_PROFILE: CiExplorerProfileManager,
+    ManagerType.FIELD_CLASSES: FieldClassesManager,
+    ManagerType.SCOPE_ROLES: ScopeRolesManager,
+    ManagerType.ACCESS_ASSIGNMENTS: AccessAssignmentsManager,
     ManagerType.OBJECTS: ObjectsManager,
     ManagerType.LOGS: LogsManager,
     ManagerType.DOCAPI_TEMPLATES: DocapiTemplatesManager,

@@ -36,23 +36,20 @@ from cmdb.manager import ObjectsManager, SettingsManager, UsersManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.object_model import CmdbObjectKey, SystemRefKind
-from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.builder import resolve_denied_type_ids
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.write_ledger import WriteLedger
-from cmdb.framework.person_sync.person_sync_constants import GroupMappingProblem, PersonSyncKey, TypeOverrideKey
+from cmdb.framework.person_sync.person_sync_constants import PersonSyncKey, TypeOverrideKey
 from cmdb.framework.person_sync.sync_engine import (
     SyncContext,
     SyncResult,
     emit_sync_events,
     linked_object,
-    sync_user_group_deleted,
 )
 from cmdb.framework.person_sync.sync_group_mapping import (
     existing_person_group_problems,
     map_user_group,
-    person_group_type_problems,
     read_group_mappings,
 )
 from cmdb.framework.person_sync.sync_pass import run_sync_pass, switch_off_pass
@@ -69,7 +66,7 @@ from cmdb.framework.person_sync.sync_relocation import RelocationStores, plan_re
 from cmdb.framework.person_sync.sync_relocation_rules import PersonRelocation
 from cmdb.framework.person_sync.sync_settings_rules import find_sync_settings_problems
 from cmdb.interface.route_utils import abort_if_too_large
-from cmdb.interface.rest_api.routes.routes_helper import abort_if_duplicate
+from cmdb.interface.rest_api.routes.routes_helper import abort_if_duplicate, abort_on_problems
 from cmdb.interface.rest_api.routes.user_management_routes.person_sync_events_helper import build_sync_events
 from cmdb.interface.rest_api.routes.user_management_routes.person_sync_hook_helper import (
     person_sync_context,
@@ -99,7 +96,6 @@ MAPPED_GROUP_PERMISSIONS: tuple[AccessControlPermission, ...] = (
 )
 
 __all__: list[str] = [
-    'PROBLEM_SEPARATOR',
     'user_sync_view',
     'group_sync_view',
     'pass_counts',
@@ -109,30 +105,13 @@ __all__: list[str] = [
     'store_group_sync',
     'resync',
     'map_group',
-    'unmap_group',
     'read_settings',
     'read_mappings',
     'user_person_link',
 ]
 
-# Joins the problems of one refused request
-PROBLEM_SEPARATOR: str = ' '
 
 SyncPass = Callable[[SyncContext], SyncResult]
-
-
-def _abort_on_problems(problems: list[str]) -> None:
-    """
-    Refuses a request with every problem found
-
-    Args:
-        problems (list[str]): The problems; none lets the request go on
-
-    Raises:
-        HTTPException: 400 naming every problem
-    """
-    if problems:
-        abort(400, PROBLEM_SEPARATOR.join(problems))
 
 
 def user_sync_view(settings: PersonSyncSettings) -> dict[str, Any]:
@@ -159,7 +138,9 @@ def group_sync_view(settings: PersonSyncSettings, mappings: list[dict[str, int]]
     Returns:
         dict[str, Any]: ``active`` and ``mappings``
     """
-    return {PersonSyncKey.ACTIVE.value: settings.groups.active, PersonSyncAnswerKey.MAPPINGS.value: mappings}
+    return {PersonSyncKey.ACTIVE.value: settings.groups.active,
+            PersonSyncKey.DEFAULT_TYPE_ID.value: settings.groups.default_type_id,
+            PersonSyncAnswerKey.MAPPINGS.value: mappings}
 
 
 def left_members_view(result: SyncResult) -> list[dict[str, Any]]:
@@ -292,7 +273,7 @@ def _judged_user_sync(request_user: CmdbUser, body: dict[str, Any]) -> tuple[Syn
     if not users.active:
         settings = switch_user_sync_off(settings)
 
-    _abort_on_problems(find_sync_settings_problems(settings, context.types_manager, context.users_manager))
+    abort_on_problems(find_sync_settings_problems(settings, context.types_manager, context.users_manager))
 
     return context, settings
 
@@ -346,15 +327,19 @@ def store_user_sync(request_user: CmdbUser,
     return settings, result, relocations
 
 
-def store_group_sync(request_user: CmdbUser, active: bool) -> tuple[PersonSyncSettings, SyncResult]:
+def store_group_sync(request_user: CmdbUser, active: bool,
+                     default_type_id: int | None) -> tuple[PersonSyncSettings, SyncResult]:
     """
-    Judges and stores the user group sync's switch; switched on, the pass brings every mapped person group in line
+    Judges and stores the user group sync's settings; switched on, the pass gives every user group its person group
+    and brings each in line
 
-    Switched off, nothing is written but the switch: the mapped person groups are unlocked, kept as they are
+    Switched off, nothing is written but the settings: the mapped person groups are unlocked, kept as they are. A new
+    default Type applies to person groups created afterwards
 
     Args:
         request_user (CmdbUser): The caller
         active (bool): The switch
+        default_type_id (int | None): The PERSON_GROUP Type person groups are created in
 
     Raises:
         HTTPException: 400 naming every problem, or a Type the pass cannot write into
@@ -363,15 +348,16 @@ def store_group_sync(request_user: CmdbUser, active: bool) -> tuple[PersonSyncSe
         tuple[PersonSyncSettings, SyncResult]: The stored settings and what the pass wrote
     """
     context: SyncContext = person_sync_context(request_user)
-    settings: PersonSyncSettings = replace(context.settings, groups=GroupSyncSettings(active=active))
+    settings: PersonSyncSettings = replace(context.settings,
+                                           groups=GroupSyncSettings(active=active, default_type_id=default_type_id))
 
-    _abort_on_problems(find_sync_settings_problems(settings, context.types_manager, context.users_manager))
+    abort_on_problems(find_sync_settings_problems(settings, context.types_manager, context.users_manager))
 
     return settings, _store_and_sync(request_user, context, settings, run_sync_pass if active else None,
                                      pass_first=True)
 
 
-def resync(request_user: CmdbUser) -> SyncResult:
+def resync(request_user: CmdbUser) -> tuple[PersonSyncSettings, SyncResult]:
     """
     Runs the pass on the stored settings - catching up whatever a failed sync left
 
@@ -382,7 +368,7 @@ def resync(request_user: CmdbUser) -> SyncResult:
         HTTPException: 400 while the user sync is off, or for a Type the pass cannot write into
 
     Returns:
-        SyncResult: What the pass wrote
+        tuple[PersonSyncSettings, SyncResult]: The settings the pass ran on, and what it wrote
     """
     context: SyncContext = person_sync_context(request_user)
 
@@ -392,7 +378,7 @@ def resync(request_user: CmdbUser) -> SyncResult:
     result: SyncResult = _run_pass(context, run_sync_pass)
     emit_sync_events(context.objects_manager, result, build_sync_events(request_user))
 
-    return result
+    return context.settings, result
 
 
 def _read_user_group(context: SyncContext, user_group_id: int) -> CmdbUserGroup:
@@ -436,54 +422,41 @@ def _abort_unless_permitted(request_user: CmdbUser, type_id: Any,
         abort(403, message)
 
 
-def _judge_mapping_target(context: SyncContext,
-                          body: dict[str, Any]) -> tuple[dict[str, Any] | None, CmdbType | None]:
+def _judge_person_group(context: SyncContext, person_group_id: int) -> dict[str, Any]:
     """
-    Reads and judges what a user group is mapped to: an existing person group (READ and UPDATE on its Type), or the
-    Type of a new one (CREATE on it)
+    Reads and judges the person group a user group adopts: READ and UPDATE on its Type, then the person group rules
 
     Args:
-        context (SyncContext): The managers
-        body (dict[str, Any]): The validated body (``GROUP_MAPPING_SCHEMA``)
+        context (SyncContext): The managers and the acting user
+        person_group_id (int): The person group's public_id
 
     Raises:
         HTTPException: 400 naming the problem; 403 for a Type the caller's ACL denies
 
     Returns:
-        tuple[dict[str, Any] | None, CmdbType | None]: The person group, or the Type
+        dict[str, Any]: The person group as stored
     """
-    person_group_id: int | None = body.get(GroupMappingBodyKey.PERSON_GROUP_ID.value)
+    found: list[dict[str, Any]] = context.objects_manager.find(
+        criteria={CmdbObjectKey.PUBLIC_ID.value: person_group_id})
+    stored: dict[str, Any] | None = found[0] if found else None
 
-    if person_group_id is not None:
-        found: list[dict[str, Any]] = context.objects_manager.find(
-            criteria={CmdbObjectKey.PUBLIC_ID.value: person_group_id})
-        stored: dict[str, Any] | None = found[0] if found else None
+    if stored is not None:
+        group_type_id: Any = stored.get(CmdbObjectKey.TYPE_ID.value)
+        _abort_unless_permitted(context.acting_user, group_type_id, MAPPED_GROUP_PERMISSIONS,
+                                PersonSyncMessage.MAPPED_GROUP_DENIED.value.format(
+                                    public_id=person_group_id, type_id=group_type_id))
 
-        if stored is not None:
-            group_type_id: Any = stored.get(CmdbObjectKey.TYPE_ID.value)
-            _abort_unless_permitted(context.acting_user, group_type_id, MAPPED_GROUP_PERMISSIONS,
-                                    PersonSyncMessage.MAPPED_GROUP_DENIED.value.format(
-                                        public_id=person_group_id, type_id=group_type_id))
+    abort_on_problems(existing_person_group_problems(person_group_id, stored))
 
-        _abort_on_problems(existing_person_group_problems(person_group_id, stored))
-
-        return stored, None
-
-    type_id: int = body[GroupMappingBodyKey.TYPE_ID.value]
-    type_instance: CmdbType | None = context.types_manager.get_type_instance(type_id)
-
-    if type_instance is not None:
-        _abort_unless_permitted(context.acting_user, type_id, (AccessControlPermission.CREATE,),
-                                PersonSyncMessage.MAPPED_TYPE_DENIED.value.format(type_id=type_id))
-
-    _abort_on_problems(person_group_type_problems(type_id, type_instance))
-
-    return None, type_instance
+    return stored
 
 
 def map_group(request_user: CmdbUser, user_group_id: int, body: dict[str, Any]) -> tuple[int, SyncResult]:
     """
-    Maps a user group to an existing person group or to a new one, with the group sync's writes on one ledger
+    Maps a user group to an existing person group, unlinking the one it was mapped to, with the group sync's writes on
+    one ledger
+
+    Adopting the person group the user group is mapped to already changes nothing
 
     Args:
         request_user (CmdbUser): The caller, credited with the writes
@@ -491,26 +464,27 @@ def map_group(request_user: CmdbUser, user_group_id: int, body: dict[str, Any]) 
         body (dict[str, Any]): The validated body (``GROUP_MAPPING_SCHEMA``)
 
     Raises:
-        HTTPException: 404 for a missing user group; 400 for a user group mapped already, an unusable person group or
-            Type, or a mapping a concurrent request took first; 403 for a person group or Type the caller's ACL denies;
-            500 when the sync failed (nothing kept)
+        HTTPException: 404 for a missing user group; 400 for an unusable person group or a mapping a concurrent
+            request took first; 403 for a person group whose Type the caller's ACL denies; 500 when the sync failed
+            (nothing kept)
 
     Returns:
-        tuple[int, SyncResult]: The person group's id and what the sync wrote (``left_members_view`` names who left)
+        tuple[int, SyncResult]: The person group's id and what the sync wrote (``left_members_view`` names who left;
+            the previous person group's unlink among the edits)
     """
     context: SyncContext = person_sync_context(request_user)
     user_group: CmdbUserGroup = _read_user_group(context, user_group_id)
-    mapped: dict[str, Any] | None = linked_object(context.objects_manager, SystemRefKind.USER_GROUP, user_group_id)
+    person_group_id: int = body[GroupMappingBodyKey.PERSON_GROUP_ID.value]
+    previous: dict[str, Any] | None = linked_object(context.objects_manager, SystemRefKind.USER_GROUP, user_group_id)
 
-    if mapped is not None:
-        abort(400, GroupMappingProblem.USER_GROUP_MAPPED.value.format(
-            user_group_id=user_group_id, person_group_id=mapped[CmdbObjectKey.PUBLIC_ID.value]))
+    if previous is not None and previous[CmdbObjectKey.PUBLIC_ID.value] == person_group_id:
+        return person_group_id, SyncResult()
 
-    person_group, type_instance = _judge_mapping_target(context, body)
+    person_group: dict[str, Any] = _judge_person_group(context, person_group_id)
     mapped: list[tuple[int, SyncResult]] = []
 
     def _map_and_sync(ledger: WriteLedger, write_context: SyncContext) -> SyncResult:
-        public_id, result = map_user_group(write_context, ledger, user_group, person_group, type_instance)
+        public_id, result = map_user_group(write_context, ledger, user_group, person_group, previous)
         mapped.append((public_id, result))
 
         return result
@@ -522,32 +496,6 @@ def map_group(request_user: CmdbUser, user_group_id: int, body: dict[str, Any]) 
         abort_if_duplicate(err, PersonSyncMessage.MAPPING_TAKEN.value)
 
     return mapped[0]
-
-
-def unmap_group(request_user: CmdbUser, user_group_id: int) -> int:
-    """
-    Unmaps a user group: its person group keeps its name and members, unlocked
-
-    Args:
-        request_user (CmdbUser): The caller
-        user_group_id (int): The user group
-
-    Raises:
-        HTTPException: 404 when the user group is mapped to no person group
-
-    Returns:
-        int: The person group's id
-    """
-    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-    mapped: dict[str, Any] | None = linked_object(objects_manager, SystemRefKind.USER_GROUP, user_group_id)
-
-    if mapped is None:
-        abort(404, PersonSyncMessage.USER_GROUP_NOT_MAPPED.value.format(user_group_id=user_group_id))
-
-    write_with_person_sync(request_user,
-                           lambda ledger, context: sync_user_group_deleted(context, ledger, user_group_id))
-
-    return mapped[CmdbObjectKey.PUBLIC_ID.value]
 
 
 def read_settings(request_user: CmdbUser) -> PersonSyncSettings:

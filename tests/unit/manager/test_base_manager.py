@@ -667,13 +667,13 @@ def test_iterate_query_counts_the_criteria_the_rows_were_read_with() -> None:
 # ------------------------------------------ _apply_acl_to_builder_params -------------------------------------------- #
 
 def test_apply_acl_to_builder_params_without_a_user_adds_nothing() -> None:
-    """Every internal caller reads unscoped, and must not pay for a denied-types query."""
+    """Every internal caller reads unscoped, and must not pay for the access filter."""
     params = MagicMock()
 
-    with patch(f'{MODULE_PATH}.resolve_denied_type_ids') as resolve:
+    with patch(f'{MODULE_PATH}.build_scope_criteria') as scope:
         BaseManager._apply_acl_to_builder_params(params, None, MagicMock())
 
-    resolve.assert_not_called()
+    scope.assert_not_called()
     params.add_criteria.assert_not_called()
 
 
@@ -681,41 +681,36 @@ def test_apply_acl_to_builder_params_without_a_permission_adds_nothing() -> None
     """Both halves of the pair are required, matching acl/helpers.verify_access."""
     params = MagicMock()
 
-    with patch(f'{MODULE_PATH}.resolve_denied_type_ids') as resolve:
+    with patch(f'{MODULE_PATH}.build_scope_criteria') as scope:
         BaseManager._apply_acl_to_builder_params(params, MagicMock(), None)
 
-    resolve.assert_not_called()
+    scope.assert_not_called()
     params.add_criteria.assert_not_called()
 
 
 def test_apply_acl_to_builder_params_adds_nothing_when_no_type_is_denied() -> None:
-    """The common case costs one resolve and no query change at all."""
+    """The common case changes no query at all."""
     params = MagicMock()
 
-    with patch(f'{MODULE_PATH}.resolve_denied_type_ids', return_value=[]):
+    with patch(f'{MODULE_PATH}.build_scope_criteria', return_value={}):
         BaseManager._apply_acl_to_builder_params(params, MagicMock(), MagicMock())
 
     params.add_criteria.assert_not_called()
 
 
-def test_apply_acl_to_builder_params_excludes_the_denied_types() -> None:
-    """The denied ids become the shared exclusion condition, merged into the criteria."""
+@pytest.mark.parametrize('scope_criteria', [{'type_id': {'$nin': [3, 9]}}, {'type_id': {'$in': [4]}}],
+                         ids=['exclusion', 'admission'])
+def test_apply_acl_to_builder_params_merges_the_access_filter(scope_criteria: dict[str, Any]) -> None:
+    """The engine's object filter - an exclusion, or the admission of the granted types when every type is
+    restricted - is merged into the criteria as it comes, once for the rows and the count."""
     params = MagicMock()
+    user, permission = MagicMock(), MagicMock()
 
-    with patch(f'{MODULE_PATH}.resolve_denied_type_ids', return_value=[3, 9]):
-        BaseManager._apply_acl_to_builder_params(params, MagicMock(), MagicMock())
+    with patch(f'{MODULE_PATH}.build_scope_criteria', return_value=scope_criteria) as scope:
+        BaseManager._apply_acl_to_builder_params(params, user, permission)
 
-    params.add_criteria.assert_called_once_with({'type_id': {'$nin': [3, 9]}})
-
-
-def test_apply_acl_to_builder_params_resolves_the_denied_types_once() -> None:
-    """One projected read per iteration, shared by the rows and the count."""
-    params = MagicMock()
-
-    with patch(f'{MODULE_PATH}.resolve_denied_type_ids', return_value=[3]) as resolve:
-        BaseManager._apply_acl_to_builder_params(params, MagicMock(), MagicMock())
-
-    resolve.assert_called_once()
+    scope.assert_called_once_with(user, permission)
+    params.add_criteria.assert_called_once_with(scope_criteria)
 
 
 def test_iterate_query_total_defaults_to_zero_when_count_empty() -> None:
@@ -1364,4 +1359,3 @@ def test_set_public_id_counter_of_wraps_failure() -> None:
 
     with pytest.raises(BaseManagerUpdateError):
         BaseManager.set_public_id_counter_of(mgr, 'objects-counter', 12)
-

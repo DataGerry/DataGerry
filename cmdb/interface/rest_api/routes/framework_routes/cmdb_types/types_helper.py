@@ -56,6 +56,7 @@ from cmdb.manager import (
     CategoriesManager,
     CiExplorerProfileManager,
     ObjectGroupsManager,
+    ScopeRolesManager,
     SectionTemplatesManager,
 )
 
@@ -68,7 +69,6 @@ from cmdb.models.type_model.person_selector_rules import person_value_shape_chan
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.type_model.type_constants import DEFAULT_PORT_SECTION_INDEX, MIN_PORT_SECTION_INDEX
-from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.security.acl.helpers import has_access_control, has_type_document_access
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.special_type_model.special_type_enum import SpecialType
@@ -77,6 +77,7 @@ from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.location_model.location_constants import LocationKey
 from cmdb.framework.ci_explorer.label_field import label_field_error, is_label_field_unset
+from cmdb.framework.access_engine import forget_grants
 from cmdb.framework.ipam.special_type_wiring import (
     handle_special_types,
     cleanup_type_references_from_all_types,
@@ -246,7 +247,7 @@ def normalize_port_section_index(data: dict[str, Any]) -> None:
     * an absent, null or empty value becomes DEFAULT_PORT_SECTION_INDEX. `POST /types/` stores the
       raw payload (the manager only BSON-round-trips it), so without this a created type would not
       carry the key at all and only the first edit would add it - the same two-shapes-for-one-meaning
-      problem `normalize_type_acl` solves for the ACL
+      problem a create would have for any server-completed key
     * anything else that is not a whole number of 0 or greater is REFUSED with 400. Lenient coercion
       belongs to the type import, which has no user to report to; an API client sending -1 or 'left'
       has a bug worth hearing about
@@ -582,36 +583,6 @@ def build_type_criteria(
         return [*client_criteria, Builder.match_({TypeSchemaKey.ACTIVE.value: active})]
 
     return {**client_criteria, TypeSchemaKey.ACTIVE.value: active}
-
-
-def normalize_type_acl(type_data: dict[str, Any]) -> None:
-    """
-    Writes the complete ``acl`` block onto a CmdbType payload, in place
-
-    **Why the create route needs this and the others do not.** A type update and a type import both
-    hand a `CmdbType` to the manager, so they go through ``CmdbType.from_data`` -> ``to_json`` and
-    always store a full ``{'activated': ..., 'groups': {'includes': {...}}}``; the start assistant
-    writes that literal itself. ``POST /types/`` hands over the **raw payload**, which the manager
-    only BSON-round-trips - so without this a create without an ``acl`` key would store a document
-    without one, and the first edit would silently add it: two stored shapes for one meaning, decided
-    by whether anyone had edited the type.
-
-    This applies the same normalisation the other three paths get, so a Type's stored ACL does not
-    depend on the route it arrived through - ``AccessControlList.normalize_stored``, the reading
-    ``updater_20261003`` also wrote back onto every Type stored before this rule. A partial ``acl`` is
-    completed rather than rejected: the absent half is exactly what the model defaults, and ``activated``
-    defaults to **False**, which grants - access control is opt-in.
-
-    The block's shape has already been judged by the type write schema (``get_type_acl_schema``): a malformed
-    one is a 400 before this runs, so completing it cannot fail. An unknown key inside ``acl`` was purged by the
-    validator, as the model would drop it
-
-    Args:
-        type_data (dict[str, Any]): The CmdbType payload, modified in place
-    """
-    type_data[TypeSchemaKey.ACL.value] = AccessControlList.normalize_stored(
-        type_data.get(TypeSchemaKey.ACL.value)
-    )
 
 
 def build_category_criteria(
@@ -990,7 +961,7 @@ def type_deletion_followup(
     """
     Performs cleanup actions that must run after a CmdbType has been deleted
 
-    Removes the deleted type's id from relations, CiExplorerProfiles, dynamic object
+    Removes the deleted type's id from relations, CiExplorerProfiles, scope roles, dynamic object
     groups and the 'types' arrays of all CmdbCategories, and strips it from every other
     CmdbType's field-level 'ref_types' arrays so no surviving type still offers the
     deleted type as a reference target. When the deleted type carried a SpecialType
@@ -1017,6 +988,11 @@ def type_deletion_followup(
 
     # Delete this type_id from all CiExplorerProfiles
     ci_explorer_profile_manager.remove_type_from_profiles(public_id)
+
+    # Delete this type_id from every scope role listing it - a role left with no Type stays and grants nothing
+    scope_roles_manager: ScopeRolesManager = ManagerProvider.get_manager(ManagerType.SCOPE_ROLES, request_user)
+    scope_roles_manager.pull_type_from_roles(public_id)
+    forget_grants()
 
     # Delete the type from all dynamic groups
     object_groups_manager.remove_ids_from_groups(public_id, ObjectGroupMode.DYNAMIC)

@@ -67,6 +67,7 @@ from cmdb.framework.person_types.person_memberships import group_members, holdin
 from cmdb.framework.person_sync.person_sync_constants import ID_PATH, KIND_PATH
 from cmdb.framework.person_sync.sync_documents import (
     build_person_document,
+    build_person_group_document,
     former_person,
     group_after_sync,
     group_sync_change,
@@ -74,10 +75,15 @@ from cmdb.framework.person_sync.sync_documents import (
     linked_record_id,
     person_after_sync,
 )
-from cmdb.framework.person_sync.sync_mapping import SyncedPerson, synced_member_ids, synced_person_from_user
+from cmdb.framework.person_sync.sync_mapping import (
+    SyncedPerson,
+    person_group_name,
+    synced_member_ids,
+    synced_person_from_user,
+)
 from cmdb.framework.person_sync.sync_reads import synced_person_ids
 from cmdb.framework.person_sync.sync_settings import PersonSyncSettings, UserSyncSettings, drop_type_override
-from cmdb.framework.person_sync.sync_settings_rules import usable_target_type
+from cmdb.framework.person_sync.sync_settings_rules import usable_person_group_type, usable_target_type
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -291,6 +297,46 @@ def insert_linked_object(context: SyncContext, ledger: WriteLedger, build: Calla
     ledger.inserted(context.objects_manager, public_id)
 
     return public_id
+
+
+def create_person_group(context: SyncContext, ledger: WriteLedger, user_group: CmdbUserGroup,
+                        type_instance: CmdbType) -> int:
+    """
+    Creates the person group mirroring a user group, named after it and without members
+
+    Args:
+        context (SyncContext): The managers and the acting user
+        ledger (WriteLedger): Records the insert
+        user_group (CmdbUserGroup): The user group
+        type_instance (CmdbType): The judged Type carrying PERSON_GROUP
+
+    Returns:
+        int: The person group's public_id
+    """
+    return insert_linked_object(context, ledger, lambda public_id: build_person_group_document(
+        public_id, type_instance, user_group.public_id, person_group_name(user_group),
+        context.acting_user.public_id, datetime.now(timezone.utc),
+    ))
+
+
+def usable_group_type(context: SyncContext) -> CmdbType:
+    """
+    Reads the group sync's default Type, refusing one the sync cannot create person groups in
+
+    Args:
+        context (SyncContext): The managers and the settings
+
+    Raises:
+        PersonSyncTargetError: When no default is chosen, it is gone or it is no longer usable
+
+    Returns:
+        CmdbType: The Type
+    """
+    type_id: int | None = context.settings.groups.default_type_id
+
+    return usable_person_group_type(
+        type_id, context.types_manager.get_type_instance(type_id) if type_id is not None else None,
+    )
 
 
 def _create_person(context: SyncContext, ledger: WriteLedger, user: CmdbUser) -> int:
@@ -660,20 +706,31 @@ def sync_user_deleted(context: SyncContext, ledger: WriteLedger, user_id: int) -
 
 def sync_user_group(context: SyncContext, ledger: WriteLedger, user_group: CmdbUserGroup) -> SyncResult:
     """
-    Brings a user group's mapped person group in line: its name and synced members
+    Brings a user group's person group in line: one is created in the default Type when the user group has none, then
+    its name and synced members follow
 
     Args:
         context (SyncContext): The managers, the settings and the acting user
         ledger (WriteLedger): Records every write
         user_group (CmdbUserGroup): The user group as stored after its own write
 
+    Raises:
+        PersonSyncTargetError: When a person group is to be created and the default Type is unusable - nothing written
+
     Returns:
-        SyncResult: What was edited; empty while either sync is off or the group is mapped nowhere
+        SyncResult: What was created and edited; empty while either sync is off
     """
     if not (context.settings.users.active and context.settings.groups.active):
         return SyncResult()
 
-    return _sync_groups(context, ledger, {ID_PATH: user_group.public_id})
+    result = SyncResult()
+
+    if linked_object(context.objects_manager, SystemRefKind.USER_GROUP, user_group.public_id) is None:
+        result.created.append(create_person_group(context, ledger, user_group, usable_group_type(context)))
+
+    result.merge(_sync_groups(context, ledger, {ID_PATH: user_group.public_id}))
+
+    return result
 
 
 def sync_user_group_deleted(context: SyncContext, ledger: WriteLedger, user_group_id: int) -> SyncResult:

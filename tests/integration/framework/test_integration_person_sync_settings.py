@@ -172,15 +172,18 @@ class TestTheRulesOnStoredData:
             PersonSyncProblem.OVERRIDE_USER_MISSING.value.format(user_id=MISSING_USER_ID),
         ]
 
-    def test_the_group_sync_needs_a_person_group_type(self, database_manager: MongoDatabaseManager,
-                                                      database_name: str) -> None:
-        """Refused without one, accepted once one is stored"""
-        settings = PersonSyncSettings(users=UserSyncSettings(active=True, default_type_id=PERSON_TYPE_ID),
-                                      groups=GroupSyncSettings(active=True))
+    def test_the_group_sync_needs_a_usable_default(self, database_manager: MongoDatabaseManager,
+                                                   database_name: str) -> None:
+        """Refused without a default, and with one that is not stored; accepted once the PERSON_GROUP Type is"""
+        users = UserSyncSettings(active=True, default_type_id=PERSON_TYPE_ID)
+
+        assert _problems(PersonSyncSettings(users=users, groups=GroupSyncSettings(active=True)),
+                         database_manager, database_name) == [PersonSyncProblem.NO_DEFAULT_GROUP_TYPE.value]
+
+        settings = PersonSyncSettings(users=users, groups=GroupSyncSettings(active=True, default_type_id=GROUP_TYPE_ID))
 
         assert _problems(settings, database_manager, database_name) == [
-            PersonSyncProblem.NO_PERSON_GROUP_TYPE.value,
-        ]
+            PersonSyncProblem.TYPE_MISSING.value.format(type_id=GROUP_TYPE_ID)]
 
         _store_group_type(database_manager, database_name)
 

@@ -117,7 +117,7 @@ class PersonSyncProblem(BaseStrEnum):
     )
     OVERRIDE_USER_MISSING = "User {user_id} does not exist!"
     GROUPS_WITHOUT_USERS = "The user group sync needs the user sync to be switched on!"
-    NO_PERSON_GROUP_TYPE = "The user group sync needs a Type carrying the PERSON_GROUP marker!"
+    NO_DEFAULT_GROUP_TYPE = "The user group sync needs a default person group Type before it can be switched on!"
 
 
 class SyncLockProblem(BaseStrEnum):
@@ -156,6 +156,17 @@ class SyncGuardProblem(BaseStrEnum):
         "Section template '{name}' is used by Type(s) {type_ids} the user sync writes into, which would then require "
         "field(s) the sync cannot always fill: {names} - remove the flag or give them a default value!"
     )
+    GROUP_DEFAULT_TYPE_DELETE = (
+        "Type {type_id} is the user group sync's default Type and cannot be deleted - choose another first!"
+    )
+    GROUP_DEFAULT_TYPE_CHANGE = (
+        "Type {type_id} is the user group sync's default Type and must stay one it can create person groups in: "
+        "{problems}"
+    )
+    GROUP_DEFAULT_TEMPLATE_CHANGE = (
+        "Section template '{name}' is used by the user group sync's default Type {type_id}, which would then require "
+        "field(s) the sync cannot fill: {names} - remove the flag or give them a default value!"
+    )
 
 
 # The person group fields the sync fills for every mapped person group it creates
@@ -174,9 +185,6 @@ class GroupMappingProblem(BaseStrEnum):
     """
     Why mapping a user group is refused - each a format string, joined into one 400 by the caller
     """
-    USER_GROUP_MAPPED = (
-        "User group {user_group_id} is mapped to person group {person_group_id} already - unmap it first!"
-    )
     OBJECT_MISSING = "Object {public_id} does not exist!"
     NOT_PERSON_GROUP = "Object {public_id} is no person group!"
     PERSON_GROUP_MAPPED = "Person group {public_id} mirrors user group {user_group_id} already!"

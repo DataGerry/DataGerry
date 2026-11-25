@@ -115,7 +115,7 @@ def no_request_context_left(request: pytest.FixtureRequest):
     """
     Fails the test after which a request context is still pushed - in its own teardown, so the report names it
 
-    Request-scoped state (``route_utils.request_cache``, ``flask.g``) would otherwise leak into every later test.
+    Request-scoped state (``cmdb.utils.request_cache``, ``flask.g``) would otherwise leak into every later test.
     Set up before every other function fixture of a test and torn down after them, so a fixture that pushes a request
     for its test has popped it by then
 

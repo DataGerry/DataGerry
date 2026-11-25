@@ -74,7 +74,7 @@ from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
-from cmdb.utils import str_to_bool
+from cmdb.utils import request_cache, str_to_bool
 from cmdb.interface.blueprints.schema_error_format import describe_schema_errors
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import (
     EVENT_TYPE_ACL_CACHE_KEY,
@@ -101,7 +101,6 @@ from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import (
 )
 from cmdb.models.webhook_model.webhook_constants import WebhookKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
-from cmdb.interface.route_utils import request_cache
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)

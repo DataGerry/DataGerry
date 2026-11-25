@@ -42,6 +42,7 @@ from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
 from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.object_relation_model import CmdbObjectRelation
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/ci_explorer/items'
@@ -134,7 +135,8 @@ def fixture_connector(database_manager) -> MongoConnector:
 
 @pytest.fixture(scope='module', autouse=True)
 def setup_acl_fixture(request, connector: MongoConnector, database_name):
-    """Seeds three types of differing ACL state, their objects and the relations between them."""
+    """Seeds three types of differing ACL state (and the access rules they translate to), their objects and the
+    relations between them."""
     database = connector.client.get_database(database_name)
     types = database.get_collection(CmdbType.COLLECTION)
     objects = database.get_collection(CmdbObject.COLLECTION)
@@ -146,6 +148,7 @@ def setup_acl_fixture(request, connector: MongoConnector, database_name):
         _make_type(TYPE_DEACTIVATED, 'acl_off', DEACTIVATED_ACL),
         _make_type(TYPE_LOCKED, 'acl_locked', LOCKED_ACL),
     ])
+    access: SeededAccess = store_type_access(database, [TYPE_OPEN, TYPE_DEACTIVATED, TYPE_LOCKED])
 
     objects.insert_many([
         _make_object(OBJ_FOCAL, TYPE_OPEN, 'focal'),
@@ -181,6 +184,7 @@ def setup_acl_fixture(request, connector: MongoConnector, database_name):
     ])
 
     def _drop_all() -> None:
+        remove_type_access(database, access)
         types.drop()
         objects.drop()
         relations.drop()

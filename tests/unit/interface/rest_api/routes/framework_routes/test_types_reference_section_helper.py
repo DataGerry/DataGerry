@@ -53,6 +53,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     ReferencedSectionUsageKey,
 )
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper'
@@ -389,6 +390,11 @@ class TestGuardReferencedSectionRemoval:
 class TestBuildReferencedSectionUsagePayload:
     """The pre-check payload."""
 
+    @pytest.fixture(autouse=True)
+    def no_type_restricted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The access engine answers from no Type ACL - a test judging dependents registers them"""
+        decide_by_type_acls(monkeypatch, [])
+
     def test_reports_the_referencing_types_and_the_blocked_sections(self) -> None:
         """
         The frontend needs both halves: may I delete the type, and may I delete THIS section
@@ -465,7 +471,7 @@ class TestBuildReferencedSectionUsagePayload:
         assert payload[ReferencedSectionUsageKey.COUNT.value] == 0
         assert not payload[ReferencedSectionUsageKey.SECTIONS.value]
 
-    def test_a_hidden_dependent_is_counted_but_not_named(self) -> None:
+    def test_a_hidden_dependent_is_counted_but_not_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         The guards refuse on every dependent, so COUNT and IN_USE carry it; the caller's group may not READ it,
         so neither REFERENCING_TYPE_IDS nor the section's list names it - the section stays present, empty
@@ -473,6 +479,7 @@ class TestBuildReferencedSectionUsagePayload:
         target = _type_with_sections(_section(REFERENCED_SECTION))
         hidden = _dependent_doc([], public_id=HIDDEN_DEPENDENT_TYPE_ID)
         hidden[TypeSchemaKey.ACL.value] = _acl_granting(OTHER_GROUP_ID)
+        decide_by_type_acls(monkeypatch, [hidden])
 
         with _patch_managers_by_type({ManagerType.TYPES: _types_manager([hidden])}):
             payload = build_referenced_section_usage_payload(_caller(), target)
@@ -482,13 +489,14 @@ class TestBuildReferencedSectionUsagePayload:
         assert payload[ReferencedSectionUsageKey.REFERENCING_TYPE_IDS.value] == []
         assert payload[ReferencedSectionUsageKey.SECTIONS.value] == {REFERENCED_SECTION: []}
 
-    def test_a_readable_dependent_beside_a_hidden_one_is_named(self) -> None:
+    def test_a_readable_dependent_beside_a_hidden_one_is_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Only the hidden one is left out of the names; both count"""
         target = _type_with_sections(_section(REFERENCED_SECTION))
         readable = _dependent_doc([])
         readable[TypeSchemaKey.ACL.value] = _acl_granting(CALLER_GROUP_ID)
         hidden = _dependent_doc([], public_id=HIDDEN_DEPENDENT_TYPE_ID)
         hidden[TypeSchemaKey.ACL.value] = _acl_granting(OTHER_GROUP_ID)
+        decide_by_type_acls(monkeypatch, [hidden])
 
         with _patch_managers_by_type({ManagerType.TYPES: _types_manager([readable, hidden])}):
             payload = build_referenced_section_usage_payload(_caller(), target)
@@ -499,15 +507,16 @@ class TestBuildReferencedSectionUsagePayload:
                 for entry in payload[ReferencedSectionUsageKey.SECTIONS.value][REFERENCED_SECTION]] == [
                     DEPENDENT_TYPE_ID]
 
-    def test_the_acl_is_read_with_the_dependents(self) -> None:
-        """Judging needs the ACL in the projection - still the one query"""
+    def test_the_type_id_is_read_with_the_dependents(self) -> None:
+        """Judging asks the access engine by the dependent's public_id, so the projection carries it - still the
+        one query"""
         target = _type_with_sections(_section(REFERENCED_SECTION))
         manager = _types_manager()
 
         with _patch_managers_by_type({ManagerType.TYPES: manager}):
             build_referenced_section_usage_payload(_caller(), target)
 
-        assert manager.find.call_args.kwargs['projection'][TypeSchemaKey.ACL.value] == 1
+        assert manager.find.call_args.kwargs['projection'][TypeSchemaKey.PUBLIC_ID.value] == 1
 
 
 HIDDEN_DEPENDENT_TYPE_ID: int = 902

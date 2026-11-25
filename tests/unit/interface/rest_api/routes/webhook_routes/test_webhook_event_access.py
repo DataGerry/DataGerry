@@ -21,21 +21,24 @@ Pure tests: no Mongo, the denied types are given or patched. Pinned:
   - the event's object type is the AFTER snapshot's, else the BEFORE one's (a delete), else none
   - a denied event loses exactly its three value keys - both snapshots and the diff - and keeps the rest of the row;
     an allowed one is returned as it is
+  - with every Type restricted (the complement form), an event of a gone Type or of none is masked - while Types are
+    only listed, it is shown
   - the pipeline stage applies the same rule, and is no stage at all when nothing is denied
-  - the denied types are the caller's for READ
+  - the denial is the caller's for READ
 """
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
+from cmdb.framework.access_engine import DeniedTypes
 from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
 from cmdb.models.webhook_model.webhook_event_constants import OBJECT_VALUE_KEYS, WebhookEventKey
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.webhook_routes import webhook_event_access
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_access import (
     build_event_masking_stage,
-    denied_object_type_ids,
+    denied_object_types,
     event_object_type_id,
     mask_event_object_values,
 )
@@ -44,6 +47,11 @@ from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_access import (
 DENIED_TYPE: int = 7
 ALLOWED_TYPE: int = 8
 OTHER_DENIED_TYPE: int = 9
+GONE_TYPE: int = 99
+
+# The listed form, and the complement form an every-Type role yields - only ALLOWED_TYPE admitted
+DENIED: DeniedTypes = DeniedTypes(ids=frozenset({DENIED_TYPE}))
+EVERY_TYPE_BUT_ALLOWED: DeniedTypes = DeniedTypes(admitted=frozenset({ALLOWED_TYPE}))
 
 
 def _event(before_type: Any = None, after_type: Any = None) -> dict[str, Any]:
@@ -78,7 +86,7 @@ class TestMaskEventObjectValues:
         """Both snapshots and the diff; when, to whom and with which answer stay"""
         event = _event(before_type=DENIED_TYPE, after_type=DENIED_TYPE)
 
-        masked = mask_event_object_values(event, [DENIED_TYPE])
+        masked = mask_event_object_values(event, DENIED)
 
         assert {key: masked[key] for key in ('object_before', 'object_after', 'changes')} == dict.fromkeys(
             ('object_before', 'object_after', 'changes'))
@@ -89,22 +97,32 @@ class TestMaskEventObjectValues:
         """A copy is answered"""
         event = _event(after_type=DENIED_TYPE)
 
-        mask_event_object_values(event, [DENIED_TYPE])
+        mask_event_object_values(event, DENIED)
 
         assert event['object_after'] is not None
 
-    @pytest.mark.parametrize('denied', [[], [OTHER_DENIED_TYPE]], ids=['nothing-denied', 'another-type-denied'])
-    def test_an_allowed_event_is_returned_as_it_is(self, denied: list[int]) -> None:
+    @pytest.mark.parametrize('denied', [
+        DeniedTypes(), DeniedTypes(ids=frozenset({OTHER_DENIED_TYPE})), EVERY_TYPE_BUT_ALLOWED,
+    ], ids=['nothing-denied', 'another-type-denied', 'every-type-but-this'])
+    def test_an_allowed_event_is_returned_as_it_is(self, denied: DeniedTypes) -> None:
         """The same object, not a copy"""
         event = _event(after_type=ALLOWED_TYPE)
 
         assert mask_event_object_values(event, denied) is event
 
-    def test_an_event_without_a_type_is_shown(self) -> None:
-        """Nothing to judge it by - the same as the pipeline, where a null type is in no denied list"""
-        event = _event()
+    @pytest.mark.parametrize('event', [_event(), _event(after_type=GONE_TYPE)], ids=['no-type', 'gone-type'])
+    def test_an_event_of_no_listed_type_is_shown_while_types_are_listed(self, event: dict[str, Any]) -> None:
+        """Only the listed Types are denied - a gone Type or none is not among them"""
+        assert mask_event_object_values(event, DENIED) is event
 
-        assert mask_event_object_values(event, [DENIED_TYPE]) is event
+    @pytest.mark.parametrize('event', [
+        _event(), _event(after_type=GONE_TYPE), _event(before_type=DENIED_TYPE),
+    ], ids=['no-type', 'gone-type', 'not-admitted'])
+    def test_every_type_restricted_masks_what_is_not_admitted(self, event: dict[str, Any]) -> None:
+        """An every-Type role admits the granted Types only - a gone Type, or none, is masked like a denied one"""
+        masked = mask_event_object_values(event, EVERY_TYPE_BUT_ALLOWED)
+
+        assert [masked[key.value] for key in OBJECT_VALUE_KEYS] == [None] * len(OBJECT_VALUE_KEYS)
 
 
 class TestBuildEventMaskingStage:
@@ -112,11 +130,11 @@ class TestBuildEventMaskingStage:
 
     def test_no_stage_when_nothing_is_denied(self) -> None:
         """Most installations activate no ACL, and pay nothing"""
-        assert build_event_masking_stage([]) is None
+        assert build_event_masking_stage(DeniedTypes()) is None
 
     def test_a_set_stage_blanks_each_value_key_when_the_type_is_denied(self) -> None:
         """One $cond per value key, all on the same type expression"""
-        stage = build_event_masking_stage([DENIED_TYPE, OTHER_DENIED_TYPE])
+        stage = build_event_masking_stage(DeniedTypes(ids=frozenset({OTHER_DENIED_TYPE, DENIED_TYPE})))
 
         assert list(stage) == ['$set']
         assert set(stage['$set']) == {key.value for key in OBJECT_VALUE_KEYS}
@@ -129,14 +147,26 @@ class TestBuildEventMaskingStage:
             assert masked is None
             assert kept == f'${key.value}'
 
+    def test_every_type_restricted_masks_what_is_not_admitted(self) -> None:
+        """The complement: masked unless the type is admitted - a null or gone type is not"""
+        stage = build_event_masking_stage(DeniedTypes(admitted=frozenset({OTHER_DENIED_TYPE, ALLOWED_TYPE})))
 
-def test_the_denied_types_are_the_callers_for_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The same denied-types read the object listings use"""
-    resolve = MagicMock(return_value=[DENIED_TYPE])
-    monkeypatch.setattr(webhook_event_access, 'resolve_denied_type_ids', resolve)
+        for key in OBJECT_VALUE_KEYS:
+            condition, masked, kept = stage['$set'][key.value]['$cond']
+            assert condition == {'$not': [{'$in': [
+                {'$ifNull': ['$object_after.type_id', '$object_before.type_id']}, [ALLOWED_TYPE, OTHER_DENIED_TYPE],
+            ]}]}
+            assert masked is None
+            assert kept == f'${key.value}'
+
+
+def test_the_denial_is_the_callers_for_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The access engine's denial of READ, as it holds it"""
+    resolve = MagicMock(return_value=DENIED)
+    monkeypatch.setattr(webhook_event_access, 'resolve_denied_types', resolve)
     request_user = MagicMock()
 
-    assert denied_object_type_ids(request_user) == [DENIED_TYPE]
+    assert denied_object_types(request_user) is DENIED
     resolve.assert_called_once_with(request_user, AccessControlPermission.READ)
 
 

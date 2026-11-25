@@ -56,28 +56,23 @@ USER_SYNC_SCHEMA: dict[str, Any] = {
     },
 }
 
-# The user group sync settings: its switch
+# The user group sync settings, written whole: its switch and the PERSON_GROUP Type person groups are created in
 GROUP_SYNC_SCHEMA: dict[str, Any] = {
     PersonSyncKey.ACTIVE.value: {'type': 'boolean', 'required': True},
+    PersonSyncKey.DEFAULT_TYPE_ID.value: {'type': 'integer', 'nullable': True, 'required': True},
 }
 
 
 class GroupMappingBodyKey(BaseStrEnum):
     """
-    The keys of a mapping request: an existing person group, or the Type a new one is created in
+    The key of a mapping request: the existing person group a user group adopts
     """
     PERSON_GROUP_ID = 'person_group_id'
-    TYPE_ID = 'type_id'
 
 
-# One user group mapping: exactly one of the two keys
+# One user group mapping: the person group adopted
 GROUP_MAPPING_SCHEMA: dict[str, Any] = {
-    GroupMappingBodyKey.PERSON_GROUP_ID.value: {
-        'type': 'integer', 'excludes': GroupMappingBodyKey.TYPE_ID.value, 'required': True,
-    },
-    GroupMappingBodyKey.TYPE_ID.value: {
-        'type': 'integer', 'excludes': GroupMappingBodyKey.PERSON_GROUP_ID.value, 'required': True,
-    },
+    GroupMappingBodyKey.PERSON_GROUP_ID.value: {'type': 'integer', 'required': True},
 }
 
 
@@ -120,14 +115,12 @@ class PersonSyncMessage(BaseStrEnum):
     DUPLICATE_OVERRIDE = "Users {user_ids} carry more than one type override!"
     USER_SYNC_OFF = "The user sync is switched off - switch it on to sync!"
     USER_GROUP_NOT_FOUND = "User group {user_group_id} does not exist!"
-    USER_GROUP_NOT_MAPPED = "User group {user_group_id} is mapped to no person group!"
     USER_NOT_FOUND = "User {user_id} does not exist!"
     PERSON_NOT_READABLE = "Access denied: the person of user {user_id} is in a Type you may not read!"
-    MAPPING_TAKEN = "The user group or the person group is mapped already - unmap it first!"
+    MAPPING_TAKEN = "The user group or the person group was mapped by a concurrent request - try again!"
     MAPPED_GROUP_DENIED = (
         "Access denied: mapping person group {public_id} needs READ and UPDATE on its Type {type_id}!"
     )
-    MAPPED_TYPE_DENIED = "Access denied: creating the person group needs CREATE on Type {type_id}!"
     PERSONS_BLOCKED = (
         "{count} person(s) cannot move to their new Type - send on_blocked 'copy' to leave a deactivated copy and "
         "create a new person, or change nothing: {details}"

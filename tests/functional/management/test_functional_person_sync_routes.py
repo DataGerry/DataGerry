@@ -20,7 +20,7 @@ Over HTTP: the settings read off by default; switching the user sync on mirrors 
 a problem refuses with nothing written; switching it off deactivates the persons and the group sync; a linked person
 keeps its Type; the group sync needs the user sync; mapping a user group to a new or an existing person group, refused
 twice, and unmapping it; the resync; a user's person; a target change - the check, a move, a blocked person cancelling
-or copied; the right
+or copied; the right. A Type ACL a test sets is also stored as the access rules it translates to
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -41,6 +41,7 @@ from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.framework.person_types.default_person_types import build_default_person_type
 from cmdb.framework.person_sync.person_sync_constants import PERSON_SYNC_SETTINGS_SECTION
 from cmdb.framework.person_sync.sync_settings import read_sync_settings
+from tests.utils.type_access_seed import remove_type_access_of_types, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 SYNC_URL: str = '/person_sync'
@@ -49,6 +50,8 @@ ADMIN_ID: int = 1
 PERSON_TYPE_ID: int = 9801
 OTHER_PERSON_TYPE_ID: int = 9802
 GROUP_TYPE_ID: int = 9803
+GROUP_ON: dict[str, Any] = {'active': True, 'default_type_id': GROUP_TYPE_ID}
+GROUP_OFF: dict[str, Any] = {**GROUP_ON, 'active': False}
 MISSING_TYPE_ID: int = 9899
 USER_GROUP_ID: int = 9811
 RIGHTLESS_GROUP_ID: int = 9812
@@ -97,6 +100,7 @@ def fixture_db(database_manager: MongoDatabaseManager, database_name: str) -> It
     yield database
 
     type_ids: list[int] = [PERSON_TYPE_ID, OTHER_PERSON_TYPE_ID, GROUP_TYPE_ID]
+    remove_type_access_of_types(database, type_ids)
     object_ids = [document['public_id'] for document in database[CmdbObject.COLLECTION].find(
         {'$or': [{'type_id': {'$in': type_ids}}, {'system_ref': {'$exists': True}}]})]
     database[CmdbObject.COLLECTION].delete_many({'public_id': {'$in': object_ids}})
@@ -208,7 +212,7 @@ class TestUserSync:
     def test_switching_off_deactivates_the_persons_and_the_group_sync(self, rest_api, db: Any) -> None:
         """Persons inactive and still linked; the group sync off with it"""
         _switch_on(rest_api)
-        rest_api.put(f'{SYNC_URL}/groups', json={'active': True})
+        rest_api.put(f'{SYNC_URL}/groups', json=GROUP_ON)
 
         response = rest_api.put(f'{SYNC_URL}/users', json=OFF)
 
@@ -230,39 +234,93 @@ class TestGroupSync:
 
     def test_the_group_sync_needs_the_user_sync(self, rest_api) -> None:
         """400 while the user sync is off"""
-        response = rest_api.put(f'{SYNC_URL}/groups', json={'active': True})
+        response = rest_api.put(f'{SYNC_URL}/groups', json=GROUP_ON)
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert 'needs the user sync' in response.get_json()['message']
 
-    def test_switching_on_names_the_mapped_groups(self, rest_api, db: Any) -> None:
-        """The mapped person group takes its user group's label"""
+    def test_switching_on_names_the_mapped_groups_and_creates_the_others(self, rest_api, db: Any) -> None:
+        """The adopted person group takes its user group's label; every other user group gets one in the default"""
         _switch_on(rest_api)
         rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'person_group_id': EXISTING_GROUP_ID})
 
-        response = rest_api.put(f'{SYNC_URL}/groups', json={'active': True})
+        response = rest_api.put(f'{SYNC_URL}/groups', json=GROUP_ON)
+        result: dict[str, Any] = response.get_json()['result']
+        mapped: dict[int, int] = {entry['user_group_id']: entry['person_group_id'] for entry in result['mappings']}
 
         assert response.status_code == HTTPStatus.ACCEPTED
-        assert response.get_json()['result'] == {
-            'active': True, 'mappings': [{'user_group_id': USER_GROUP_ID, 'person_group_id': EXISTING_GROUP_ID}],
-        }
+        assert (result['active'], result['default_type_id'], mapped[USER_GROUP_ID]) == (
+            True, GROUP_TYPE_ID, EXISTING_GROUP_ID)
+        assert set(mapped) == {group['public_id'] for group in db[CmdbUserGroup.COLLECTION].find()}
+        assert {_object(db, person_group)['type_id'] for user_group, person_group in mapped.items()
+                if user_group != USER_GROUP_ID} == {GROUP_TYPE_ID}
+        assert response.get_json()['created'] == len(mapped) - 1
         assert _values(_object(db, EXISTING_GROUP_ID))[PersonGroupField.NAME.value] == GROUP_LABEL
 
 
-class TestMappings:
-    """PUT / DELETE /person_sync/groups/<user_group_id>."""
+class TestGroupSyncDefault:
+    """The group sync's default Type - stored, answered, judged."""
 
-    def test_a_new_person_group_is_created_and_linked(self, rest_api, db: Any) -> None:
-        """Named after the user group, without members, linked"""
-        response = rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'type_id': GROUP_TYPE_ID})
+    def test_it_is_stored_and_answered_while_off(self, rest_api) -> None:
+        """Chosen while off: judged, kept"""
+        response = rest_api.put(f'{SYNC_URL}/groups', json=GROUP_OFF)
 
         assert response.status_code == HTTPStatus.ACCEPTED
-        person_group_id: int = response.get_json()['result']['person_group_id']
-        created: dict[str, Any] = _object(db, person_group_id)
-        assert created['system_ref'] == {'kind': 'user_group', 'id': USER_GROUP_ID}
-        assert created['type_id'] == GROUP_TYPE_ID
-        assert _values(created)[PersonGroupField.NAME.value] == GROUP_LABEL
-        assert db[CmdbMetaLog.COLLECTION].count_documents({'object_id': person_group_id}) == 1
+        assert rest_api.get(f'{SYNC_URL}/groups').get_json()['result']['default_type_id'] == GROUP_TYPE_ID
+
+    def test_the_body_must_carry_it(self, rest_api) -> None:
+        """Every key is required"""
+        assert rest_api.put(f'{SYNC_URL}/groups', json={'active': False}).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_on_without_it_is_refused(self, rest_api) -> None:
+        """Named"""
+        _switch_on(rest_api)
+        response = rest_api.put(f'{SYNC_URL}/groups', json={'active': True, 'default_type_id': None})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'default person group Type' in response.get_json()['message']
+
+    @pytest.mark.parametrize('active', [True, False], ids=['on', 'off'])
+    def test_a_person_type_is_refused_on_or_off(self, rest_api, active: bool) -> None:
+        """No PERSON_GROUP marker"""
+        _switch_on(rest_api)
+        response = rest_api.put(f'{SYNC_URL}/groups', json={'active': active, 'default_type_id': PERSON_TYPE_ID})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'PERSON_GROUP' in response.get_json()['message']
+
+
+class TestMappings:
+    """PUT /person_sync/groups/<user_group_id> - adopting an existing person group; there is no unmap."""
+
+    def test_a_re_map_unlinks_the_created_group_and_adopts_the_existing_one(self, rest_api, db: Any) -> None:
+        """The sync's own group stays, unlinked and logged; the adopted one is linked and synced at once"""
+        _switch_on(rest_api)
+        rest_api.put(f'{SYNC_URL}/groups', json=GROUP_ON)
+        created_id: int = db[CmdbObject.COLLECTION].find_one(
+            {'system_ref': {'kind': 'user_group', 'id': USER_GROUP_ID}})['public_id']
+
+        response = rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'person_group_id': EXISTING_GROUP_ID})
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        assert response.get_json()['result']['person_group_id'] == EXISTING_GROUP_ID
+        created: dict[str, Any] = _object(db, created_id)
+        assert 'system_ref' not in created and _values(created)[PersonGroupField.NAME.value] == GROUP_LABEL
+        assert db[CmdbMetaLog.COLLECTION].count_documents(
+            {'object_id': created_id, 'comment': 'Unlinked from user management'}) == 1
+        assert _values(_object(db, EXISTING_GROUP_ID)) == {
+            PersonGroupField.NAME.value: GROUP_LABEL,
+            PersonGroupField.MEMBERS.value: [_person(db, RIGHTLESS_USER_ID)['public_id']],
+        }
+
+    def test_adopting_the_mapped_group_again_changes_nothing(self, rest_api, db: Any) -> None:
+        """202, nothing written"""
+        rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'person_group_id': EXISTING_GROUP_ID})
+        before: dict[str, Any] = _object(db, EXISTING_GROUP_ID)
+
+        response = rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'person_group_id': EXISTING_GROUP_ID})
+
+        assert (response.status_code, _object(db, EXISTING_GROUP_ID)) == (HTTPStatus.ACCEPTED, before)
 
     def test_an_existing_person_group_is_linked_unchanged_while_the_group_sync_is_off(self, rest_api, db: Any) -> None:
         """Its name stays until the group sync writes it"""
@@ -273,12 +331,12 @@ class TestMappings:
         assert stored['system_ref'] == {'kind': 'user_group', 'id': USER_GROUP_ID}
         assert _values(stored)[PersonGroupField.NAME.value] == 'Old name'
 
-    def test_with_both_syncs_on_the_mapped_group_takes_the_members_at_once(self, rest_api, db: Any) -> None:
+    def test_an_adopted_group_takes_the_members_when_the_group_sync_goes_on(self, rest_api, db: Any) -> None:
         """The user group's member's person; the name from the label"""
         _switch_on(rest_api)
-        rest_api.put(f'{SYNC_URL}/groups', json={'active': True})
+        rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'person_group_id': EXISTING_GROUP_ID})
 
-        response = rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'person_group_id': EXISTING_GROUP_ID})
+        response = rest_api.put(f'{SYNC_URL}/groups', json=GROUP_ON)
 
         assert response.status_code == HTTPStatus.ACCEPTED
         assert _values(_object(db, EXISTING_GROUP_ID)) == {
@@ -286,31 +344,28 @@ class TestMappings:
             PersonGroupField.MEMBERS.value: [_person(db, RIGHTLESS_USER_ID)['public_id']],
         }
 
-    def test_mapping_names_the_synced_persons_that_left(self, rest_api, db: Any) -> None:
+    def test_switching_on_names_the_synced_persons_that_left(self, rest_api, db: Any) -> None:
         """A synced person added by hand whose user is not in the user group leaves - and the answer says so"""
         _switch_on(rest_api)
-        rest_api.put(f'{SYNC_URL}/groups', json={'active': True})
         admin_person: int = _person(db, ADMIN_USER_ID)['public_id']
         db[CmdbObject.COLLECTION].update_one(
             {'public_id': EXISTING_GROUP_ID, 'fields.name': PersonGroupField.MEMBERS.value},
             {'$set': {'fields.$.value': [admin_person]}})
+        rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'person_group_id': EXISTING_GROUP_ID})
 
-        response = rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'person_group_id': EXISTING_GROUP_ID})
+        response = rest_api.put(f'{SYNC_URL}/groups', json=GROUP_ON)
 
         assert response.status_code == HTTPStatus.ACCEPTED
         assert response.get_json()['left'] == [{'person_group_id': EXISTING_GROUP_ID, 'person_ids': [admin_person]}]
         assert admin_person not in _values(_object(db, EXISTING_GROUP_ID))[PersonGroupField.MEMBERS.value]
 
-    @pytest.mark.parametrize('body, type_id', [
-        ({'person_group_id': EXISTING_GROUP_ID}, GROUP_TYPE_ID), ({'type_id': GROUP_TYPE_ID}, GROUP_TYPE_ID),
-    ], ids=['existing-group', 'new-group'])
-    def test_a_type_the_callers_acl_denies_is_a_403(self, rest_api, db: Any, body: dict[str, Any],
-                                                    type_id: int) -> None:
+    def test_a_type_the_callers_acl_denies_is_a_403(self, rest_api, db: Any) -> None:
         """The sync writes as the system - the caller is judged on what it chose; nothing is mapped"""
-        db[CmdbType.COLLECTION].update_one({'public_id': type_id}, {'$set': {'acl': {
+        db[CmdbType.COLLECTION].update_one({'public_id': GROUP_TYPE_ID}, {'$set': {'acl': {
             'activated': True, 'groups': {'includes': {str(RIGHTLESS_GROUP_ID): ['READ']}}}}})
+        store_type_access(db, [GROUP_TYPE_ID])
 
-        response = rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json=body)
+        response = rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'person_group_id': EXISTING_GROUP_ID})
 
         assert response.status_code == HTTPStatus.FORBIDDEN
         assert rest_api.get(f'{SYNC_URL}/groups').get_json()['result']['mappings'] == []
@@ -325,20 +380,9 @@ class TestMappings:
         assert f'Person group {EXISTING_GROUP_ID} is deactivated' in response.get_json()['message']
         assert 'system_ref' not in _object(db, EXISTING_GROUP_ID)
 
-    def test_a_mapped_user_group_is_refused(self, rest_api) -> None:
-        """Unmap first"""
-        rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'person_group_id': EXISTING_GROUP_ID})
-
-        response = rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'type_id': GROUP_TYPE_ID})
-
-        assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert 'unmap it first' in response.get_json()['message']
-
     @pytest.mark.parametrize('body, expected', [
         ({'person_group_id': PLAIN_OBJECT_ID}, f'Object {PLAIN_OBJECT_ID} is no person group'),
         ({'person_group_id': MISSING_ID}, f'Object {MISSING_ID} does not exist'),
-        ({'type_id': PERSON_TYPE_ID}, f'Type {PERSON_TYPE_ID} does not carry the PERSON_GROUP marker'),
-        ({'type_id': MISSING_ID}, f'Type {MISSING_ID} does not exist'),
     ])
     def test_an_unusable_target_is_refused(self, rest_api, db: Any, body: dict[str, int], expected: str) -> None:
         """400 naming why; nothing linked"""
@@ -348,28 +392,27 @@ class TestMappings:
         assert expected in response.get_json()['message']
         assert db[CmdbObject.COLLECTION].count_documents({'system_ref.kind': 'user_group'}) == 0
 
-    def test_a_body_with_both_keys_is_refused(self, rest_api) -> None:
-        """Exactly one"""
-        response = rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}',
-                                json={'person_group_id': EXISTING_GROUP_ID, 'type_id': GROUP_TYPE_ID})
+    def test_a_type_id_creates_nothing(self, rest_api, db: Any) -> None:
+        """The sync creates person groups in its default - a mapping only adopts: 400, nothing linked"""
+        response = rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'type_id': GROUP_TYPE_ID})
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert db[CmdbObject.COLLECTION].count_documents({'system_ref.kind': 'user_group'}) == 0
 
     def test_a_missing_user_group_is_a_404(self, rest_api) -> None:
         """Nothing to map"""
-        response = rest_api.put(f'{SYNC_URL}/groups/{MISSING_ID}', json={'type_id': GROUP_TYPE_ID})
+        response = rest_api.put(f'{SYNC_URL}/groups/{MISSING_ID}', json={'person_group_id': EXISTING_GROUP_ID})
 
         assert response.status_code == HTTPStatus.NOT_FOUND
 
-    def test_unmapping_removes_the_link_and_keeps_the_group(self, rest_api, db: Any) -> None:
-        """The link goes; a second unmap is a 404"""
+    def test_there_is_no_unmap(self, rest_api, db: Any) -> None:
+        """DELETE is no route of it - the link stays"""
         rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'person_group_id': EXISTING_GROUP_ID})
 
         response = rest_api.delete(f'{SYNC_URL}/groups/{USER_GROUP_ID}')
 
-        assert response.status_code == HTTPStatus.ACCEPTED
-        assert 'system_ref' not in _object(db, EXISTING_GROUP_ID)
-        assert rest_api.delete(f'{SYNC_URL}/groups/{USER_GROUP_ID}').status_code == HTTPStatus.NOT_FOUND
+        assert response.status_code == HTTPStatus.METHOD_NOT_ALLOWED
+        assert _object(db, EXISTING_GROUP_ID)['system_ref'] == {'kind': 'user_group', 'id': USER_GROUP_ID}
 
 
 @pytest.fixture(name='reported')
@@ -390,9 +433,11 @@ class TestConfigItemReport:
 
         reported.assert_not_called()
 
-    def test_a_created_person_group_reports_nothing(self, rest_api, reported: MagicMock) -> None:
+    def test_the_person_groups_the_sync_creates_report_nothing(self, rest_api, reported: MagicMock) -> None:
         """Created linked - no ConfigItem came or went"""
-        rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'type_id': GROUP_TYPE_ID})
+        _switch_on(rest_api)
+
+        rest_api.put(f'{SYNC_URL}/groups', json=GROUP_ON)
 
         reported.assert_not_called()
 
@@ -403,14 +448,17 @@ class TestConfigItemReport:
         reported.assert_called_once()
         assert reported.call_args.args[0].public_id == ADMIN_ID
 
-    def test_unmapping_reports_once(self, rest_api, reported: MagicMock) -> None:
-        """The person group is a ConfigItem again"""
+    def test_a_re_map_reports_once(self, rest_api, db: Any, reported: MagicMock) -> None:
+        """The unlinked group a ConfigItem again, the adopted one not any more - one report"""
         rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'person_group_id': EXISTING_GROUP_ID})
+        db[CmdbObject.COLLECTION].insert_one({**{key: value for key, value in _object(db, EXISTING_GROUP_ID).items()
+                                                 if key not in ('_id', 'system_ref')}, 'public_id': MISSING_ID})
         reported.reset_mock()
 
-        rest_api.delete(f'{SYNC_URL}/groups/{USER_GROUP_ID}')
+        rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}', json={'person_group_id': MISSING_ID})
 
         reported.assert_called_once()
+        db[CmdbObject.COLLECTION].delete_one({'public_id': MISSING_ID})
 
 
 class TestRenderedLink:
@@ -433,7 +481,7 @@ class TestRenderedLink:
 
         assert rest_api.get(f'/objects/{person_id}').get_json()['object_information']['group_sync_active'] is False
 
-        assert rest_api.put(f'{SYNC_URL}/groups', json={'active': True}).status_code == HTTPStatus.ACCEPTED
+        assert rest_api.put(f'{SYNC_URL}/groups', json=GROUP_ON).status_code == HTTPStatus.ACCEPTED
 
         assert rest_api.get(f'/objects/{person_id}').get_json()['object_information']['group_sync_active'] is True
 
@@ -464,7 +512,9 @@ class TestResync:
         response = rest_api.post(f'{SYNC_URL}/resync')
 
         assert response.status_code == HTTPStatus.ACCEPTED
-        assert response.get_json()['result'] == {'created': 1, 'edited': 0, 'left': []}
+        answer: dict[str, Any] = response.get_json()
+        assert (answer['created'], answer['edited'], answer['left']) == (1, 0, [])
+        assert answer['result'] == ON
         assert _person(db, RIGHTLESS_USER_ID) is not None
         assert CmdbUserKey.SYNC_PENDING.value not in db[CmdbUser.COLLECTION].find_one({'public_id': RIGHTLESS_USER_ID})
 
@@ -495,6 +545,7 @@ class TestUserPerson:
         db[CmdbType.COLLECTION].update_one({'public_id': PERSON_TYPE_ID}, {'$set': {'acl': {
             'activated': True, 'groups': {'includes': {str(ADMIN_ID): ['CREATE', 'READ', 'UPDATE', 'DELETE']}},
         }}})
+        store_type_access(db, [PERSON_TYPE_ID])
         rightless: CmdbUser = CmdbUser(public_id=RIGHTLESS_USER_ID, user_name='fn-sync-rightless', active=True,
                                        group_ids=[RIGHTLESS_GROUP_ID, USER_GROUP_ID])
 
@@ -526,9 +577,8 @@ class TestRight:
         ('get', '/users', None),
         ('put', '/users', ON),
         ('get', '/groups', None),
-        ('put', '/groups', {'active': False}),
-        ('put', f'/groups/{USER_GROUP_ID}', {'type_id': GROUP_TYPE_ID}),
-        ('delete', f'/groups/{USER_GROUP_ID}', None),
+        ('put', '/groups', GROUP_OFF),
+        ('put', f'/groups/{USER_GROUP_ID}', {'person_group_id': EXISTING_GROUP_ID}),
         ('post', '/resync', None),
         ('post', '/users/check', ON),
     ])

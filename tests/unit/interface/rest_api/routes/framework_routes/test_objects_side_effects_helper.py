@@ -132,7 +132,9 @@ class TestEmitObjectUpdateEvents:
             emit_object_update_events(MagicMock(), logs_manager, after, after, after, {'new': []}, 'note')
 
         assert render.call_args.args[0] is after
-        assert dumps.call_args.args[0] is rendered
+        # A copy of the render, its writer's operations left out (none here)
+        assert dumps.call_args.args[0].object_information == rendered.object_information
+        assert dumps.call_args.args[0].type_information == rendered.type_information
         kwargs = logs_manager.insert_log.call_args.kwargs
         assert kwargs['render_state'] == b'{"rendered": true}'
         assert kwargs['changes'] == {'new': []}
@@ -269,6 +271,18 @@ class TestBuildObjectLogData:
             'object_id': 5, 'version': '1.0.1', 'user_id': 1, 'user_name': 'admin', 'comment': 'note',
             'render_state': b'{}', 'type_id': RENDERED_TYPE_ID, 'changes': {'old': 1, 'new': 2},
         }
+
+    def test_the_writers_allowed_operations_stay_out_of_the_snapshot(self) -> None:
+        """The stored render is the object - the writer's operations are not; the caller's render is left as it is"""
+        rendered = _rendered()
+        rendered.type_information = {'type_id': RENDERED_TYPE_ID, 'allowed_operations': ['view', 'edit']}
+        dumped: list = []
+
+        with patch(f'{HELPER_PATH}.json.dumps', side_effect=lambda value, **_kwargs: dumped.append(value) or '{}'):
+            build_object_log_data(MagicMock(), 5, '1.0.1', 'note', rendered)
+
+        assert dumped[0].type_information == {'type_id': RENDERED_TYPE_ID}
+        assert rendered.type_information == {'type_id': RENDERED_TYPE_ID, 'allowed_operations': ['view', 'edit']}
 
     def test_an_action_without_changes_stores_no_changes_key(self) -> None:
         """Create, delete and import record no diff"""

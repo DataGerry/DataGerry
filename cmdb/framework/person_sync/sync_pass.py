@@ -59,6 +59,7 @@ from cmdb.framework.person_types.person_memberships import group_members, holdin
 from cmdb.framework.person_sync.person_sync_constants import KIND_PATH
 from cmdb.framework.person_sync.sync_documents import (
     build_person_document,
+    build_person_group_document,
     former_person,
     group_after_sync,
     group_sync_change,
@@ -66,8 +67,15 @@ from cmdb.framework.person_sync.sync_documents import (
     linked_record_id,
     person_after_sync,
 )
-from cmdb.framework.person_sync.sync_engine import SyncContext, SyncResult, plan_edit_write, record_left_members
+from cmdb.framework.person_sync.sync_engine import (
+    SyncContext,
+    SyncResult,
+    plan_edit_write,
+    record_left_members,
+    usable_group_type,
+)
 from cmdb.framework.person_sync.sync_mapping import (
+    person_group_name,
     SyncedPerson,
     synced_member_ids,
     synced_person_from_user,
@@ -352,6 +360,44 @@ def _plan_former_exits(context: SyncContext, former_ids: set[int]) -> _PersonPla
     return plan
 
 
+def _plan_missing_groups(context: SyncContext) -> tuple[list[Any], list[int]]:
+    """
+    Plans a person group for every user group that has none, in the group sync's default Type - named after the user
+    group, without members (the group plan that follows adds them)
+
+    The default Type is judged before an id is reserved; nothing is planned when every user group has its person group
+
+    Args:
+        context (SyncContext): The managers, the settings and the acting user
+
+    Raises:
+        PersonSyncTargetError: When a person group is missing and the default Type is unset, gone or unusable
+
+    Returns:
+        tuple[list[Any], list[int]]: The inserts and the ids they create
+    """
+    mapped: set[int] = {linked_record_id(stored) for stored in context.objects_manager.find(
+        criteria={KIND_PATH: SystemRefKind.USER_GROUP.value})}
+    missing_ids: list[int] = sorted(
+        group[CmdbUserGroup.PUBLIC_ID_KEY] for group in context.groups_manager.find(
+            criteria={}, projection={CmdbUserGroup.PUBLIC_ID_KEY: 1})
+        if group[CmdbUserGroup.PUBLIC_ID_KEY] not in mapped)
+
+    if not missing_ids:
+        return [], []
+
+    type_instance: CmdbType = usable_group_type(context)
+    new_ids: list[int] = context.objects_manager.reserve_public_ids(len(missing_ids))
+    now: datetime = datetime.now(timezone.utc)
+    operations: list[Any] = [
+        InsertOne(build_person_group_document(public_id, type_instance, user_group.public_id,
+                                              person_group_name(user_group), context.acting_user.public_id, now))
+        for public_id, user_group in zip(new_ids, context.groups_manager.get_groups(missing_ids))
+    ]
+
+    return operations, new_ids[:len(operations)]
+
+
 def run_sync_pass(context: SyncContext) -> SyncResult:
     """
     Brings every person, and with the group sync on every mapped person group, in line with user management
@@ -369,6 +415,8 @@ def run_sync_pass(context: SyncContext) -> SyncResult:
     if not context.settings.users.active:
         return SyncResult()
 
+    # Judged first: an unusable default Type leaves everything as it was
+    group_inserts, created_group_ids = _plan_missing_groups(context) if context.settings.groups.active else ([], [])
     users: dict[int, CmdbUser] = _read_users(context)
     persons: dict[int, dict[str, Any]] = {
         linked_record_id(person): person
@@ -378,6 +426,10 @@ def run_sync_pass(context: SyncContext) -> SyncResult:
 
     if person_plan.operations:
         context.objects_manager.bulk_write(person_plan.operations)
+
+    if group_inserts:
+        context.objects_manager.bulk_write(group_inserts)
+        person_plan.result.created.extend(created_group_ids)
 
     group_plan: _PersonPlan = (_plan_groups(context, users, person_plan) if context.settings.groups.active
                                else _plan_former_exits(context, person_plan.former_ids))

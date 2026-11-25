@@ -14,25 +14,24 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Access Control helper functions
+Access decisions for one CmdbType - may this user perform this permission on objects of the Type (and, with READ,
+read its definition)?
 
-An ACL lives on the **CmdbType**, never on the CmdbObject, so "may this user read this object" is
-always "may this user's groups read objects of this object's type". A user in several groups holds the union of
-their entries: one group granting the permission is enough. The same READ decision governs the type DEFINITION: a
-user none of whose groups a type's ACL grants READ is refused that type on every type route, its export, its import
-update and the category tree. Access control is opt-in: an ACL that is absent or switched off permits everything,
-and an activated one fails closed.
+**The access engine decides** (``cmdb.framework.access_engine.type_allows``): a Type is restricted while an assigned
+scope role names it, and a restricted Type allows a permission only through the user's own assignments (READ is view,
+UPDATE edit, CREATE create, DELETE delete). The three functions here differ only in what they are handed - a CmdbType
+model, a raw CmdbType document, or nothing to check against at all.
 
-The one decision is ``acl_grants_access``; the three functions around it differ only in what they are
-handed - a CmdbType model, a raw CmdbType document as it comes out of Mongo, or nothing to check
-against at all - so a caller never re-implements the "absent or deactivated permits everything" rule
+``acl_grants_access`` is the **type ACL's own reading**, frozen: the database migrations that run before the access
+rules exist read stored ACLs with it, and the equivalence tests compare the engine against it. No access decision
+uses it any more
 """
 from collections.abc import Collection
 from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.security.acl.access_control_list import AccessControlList
-from cmdb.security.acl.acl_constants import AclKey
+from cmdb.security.acl.engine_read_errors import as_manager_read_error
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
@@ -71,9 +70,47 @@ def acl_grants_access(
     return True
 
 
+@as_manager_read_error
+def type_allowed(type_id: Any, user: CmdbUser, permission: AccessControlPermission) -> bool:
+    """
+    Whether the access engine allows a user a permission on a Type - a Type without an id is refused (fail closed:
+    a document read without its ``public_id`` must not pass as an unrestricted one)
+
+    Args:
+        type_id (Any): The Type's public_id
+        user (CmdbUser): The CmdbUser requesting access
+        permission (AccessControlPermission): The permission
+
+    Raises:
+        BaseManagerGetError: When the user's grants could not be read
+
+    Returns:
+        bool: True when access is granted
+    """
+    if not isinstance(type_id, int) or isinstance(type_id, bool):
+        LOGGER.warning("[type_allowed] A Type without a public_id was judged - refused (%s)", permission.value)
+        return False
+
+    # Imported lazily: the engine reads managers, which import this module
+    # pylint: disable=import-outside-toplevel
+    from cmdb.framework.access_engine import permission_operations, type_allows
+
+    return type_allows(user, permission_operations(permission), type_id)
+
+
 def has_access_control(target_type: CmdbType, user: CmdbUser, permission: AccessControlPermission) -> bool:
-    """Check if a user has access to object/objects for a given permission"""
-    return acl_grants_access(target_type.acl, user.group_ids, permission)
+    """
+    Whether a user may perform a permission on the objects of a Type
+
+    Args:
+        target_type (CmdbType): The Type
+        user (CmdbUser): The CmdbUser requesting access
+        permission (AccessControlPermission): The permission
+
+    Returns:
+        bool: True when access is granted
+    """
+    return type_allowed(target_type.public_id, user, permission)
 
 
 def has_type_document_access(
@@ -83,21 +120,18 @@ def has_type_document_access(
     """
     Checks a raw CmdbType **document** against a user, without building the CmdbType model
 
-    Same decision as ``has_access_control``, for the callers that already hold the type as it came
-    out of Mongo - a bulk reader that has loaded every type in scope in one ``$in`` should not pay a
-    full ``CmdbType.from_data`` per type just to look at ``acl``
+    Same decision as ``has_access_control``, for the callers that already hold the type as it came out of Mongo. The
+    document must carry its ``public_id`` - one without is refused
 
     Args:
-        type_document (dict[str, Any]): A CmdbType document; a missing ``acl`` key grants access
+        type_document (dict[str, Any]): A CmdbType document
         user (CmdbUser): The CmdbUser requesting access
-        permission (AccessControlPermission): The permission one of the user's groups must hold
+        permission (AccessControlPermission): The permission
 
     Returns:
         bool: True when access is granted
     """
-    acl_data: Any = type_document.get(TypeSchemaKey.ACL.value) or {AclKey.ACTIVATED.value: False}
-
-    return acl_grants_access(AccessControlList.from_data(acl_data), user.group_ids, permission)
+    return type_allowed(type_document.get(TypeSchemaKey.PUBLIC_ID.value), user, permission)
 
 
 def verify_access(
@@ -106,12 +140,19 @@ def verify_access(
     permission: AccessControlPermission | None = None
 ) -> None:
     """
-    Validate if a user has access to objects of this type
+    Refuses a user a permission on the objects of a Type - nothing is checked without a user or a permission (an
+    internal caller)
+
+    Args:
+        target_type (CmdbType): The Type
+        user (CmdbUser | None): The CmdbUser requesting access
+        permission (AccessControlPermission | None): The permission
+
+    Raises:
+        AccessDeniedError: When the access is not granted
     """
     if not user or not permission:
         return
 
-    verify: bool = has_access_control(target_type, user, permission)
-
-    if not verify:
+    if not has_access_control(target_type, user, permission):
         raise AccessDeniedError('Protected by ACL permission!')

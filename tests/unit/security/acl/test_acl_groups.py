@@ -17,20 +17,25 @@
 Unit tests for cmdb.security.acl.acl_groups
 
 The group questions about a raw ``acl`` block: the ``includes`` mapping, the groups it names, the groups it grants
-anything, and whether one group is the only existing group an activated block grants
+anything and each group's permission values
 """
 from typing import Any
 
 import pytest
 
-from cmdb.security.acl.acl_groups import acl_group_ids, acl_includes, granting_group_ids, is_sole_grantee
+from cmdb.security.acl.acl_groups import (
+    acl_group_ids,
+    acl_includes,
+    granting_group_ids,
+    group_key_id,
+    group_permissions,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 READ: str = 'READ'
 UPDATE: str = 'UPDATE'
 GROUP: int = 5
 OTHER_GROUP: int = 7
-DELETED_GROUP: int = 9
 UNGRANTED_GROUP: int = 8
 HIGH_GROUP: int = 12
 LOW_GROUP: int = 3
@@ -38,7 +43,6 @@ LOW_GROUP: int = 3
 # The includes keys of those groups, as a stored block spells them
 G: str = str(GROUP)
 O: str = str(OTHER_GROUP)
-D: str = str(DELETED_GROUP)
 
 
 def _acl(includes: Any, activated: bool = True) -> dict[str, Any]:
@@ -83,35 +87,37 @@ class TestGrantingGroupIds:
         assert granting_group_ids(_acl({G: [READ], O: [], str(UNGRANTED_GROUP): None})) == {GROUP}
 
 
-class TestIsSoleGrantee:
-    """is_sole_grantee"""
+class TestGroupKeyId:
+    """group_key_id"""
 
-    def test_the_only_granted_group(self) -> None:
-        """Deleting it would lock the type"""
-        assert is_sole_grantee(_acl({G: [READ, UPDATE]}), GROUP, [GROUP, OTHER_GROUP])
+    @pytest.mark.parametrize('key, expected', [(G, GROUP), (GROUP, GROUP), (str(HIGH_GROUP), HIGH_GROUP)],
+                             ids=['string', 'int', 'two-digits'])
+    def test_a_group_key(self, key: Any, expected: int) -> None:
+        """A stored string or an in-memory int"""
+        assert group_key_id(key) == expected
 
-    def test_not_while_another_existing_group_is_granted(self) -> None:
-        """The other group can still reach the type"""
-        assert not is_sole_grantee(_acl({G: [READ], O: [READ]}), GROUP, [GROUP, OTHER_GROUP])
+    @pytest.mark.parametrize('key', ['admin', '07', '0', '-5', '', ' 5', 0, -5, True, 5.0, None],
+                             ids=['word', 'leading-zero', 'zero', 'negative', 'empty', 'space', 'int-zero',
+                                  'int-negative', 'bool', 'float', 'none'])
+    def test_a_key_that_is_no_group_id(self, key: Any) -> None:
+        """None - the reader passes it over"""
+        assert group_key_id(key) is None
 
-    def test_a_grant_to_a_deleted_group_does_not_count(self) -> None:
-        """It grants nobody"""
-        assert is_sole_grantee(_acl({G: [READ], D: [READ]}), GROUP, [GROUP, OTHER_GROUP])
 
-    def test_another_group_with_no_permission_does_not_count(self) -> None:
-        """Named, but granted nothing"""
-        assert is_sole_grantee(_acl({G: [READ], O: []}), GROUP, [GROUP, OTHER_GROUP])
+class TestGroupPermissions:
+    """group_permissions"""
 
-    def test_a_list_that_is_not_activated_grants_everyone(self) -> None:
-        """No group is its sole grantee"""
-        assert not is_sole_grantee(_acl({G: [READ]}, activated=False), GROUP, [GROUP])
+    def test_each_group_with_its_values(self) -> None:
+        """In stored order, whatever activated says"""
+        expected: dict[int, list[str]] = {GROUP: [UPDATE, READ], OTHER_GROUP: []}
 
-    def test_a_group_the_list_grants_nothing_is_not_its_grantee(self) -> None:
-        """Named with an empty list"""
-        assert not is_sole_grantee(_acl({G: []}), GROUP, [GROUP])
+        assert group_permissions(_acl({G: [UPDATE, READ], O: []}, activated=False)) == expected
 
-    @pytest.mark.parametrize('acl', [None, {'activated': 'true', 'groups': {'includes': {G: [READ]}}}],
-                             ids=['none', 'activated-not-a-boolean'])
-    def test_only_an_activated_boolean_counts(self, acl: Any) -> None:
-        """The stored shape is a boolean since updater_20261001"""
-        assert not is_sole_grantee(acl, GROUP, [GROUP])
+    def test_unreadable_entries_hold_nothing(self) -> None:
+        """A key that is no group id is left out; a non-list holds nothing; a non-string value is passed over"""
+        assert group_permissions(_acl({'admin': [READ], '07': [READ], G: READ, O: [READ, 7, None]})) == {
+            GROUP: [], OTHER_GROUP: [READ]}
+
+    def test_a_missing_block_names_nobody(self) -> None:
+        """Never raises"""
+        assert not group_permissions(None)

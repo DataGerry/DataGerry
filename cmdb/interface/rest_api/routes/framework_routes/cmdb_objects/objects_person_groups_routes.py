@@ -37,7 +37,7 @@ from cmdb.interface.route_utils import (
     verify_api_access,
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.responses import GetListResponse, UpdateMultiResponse
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
     PERSON_GROUPS_CHANGE_SCHEMA,
     PersonGroupsChangeKey,
@@ -89,13 +89,13 @@ def get_person_groups(public_id: int, request_user: CmdbUser) -> Response:
         HTTPException: 404 for an id naming no person, 403 for one the caller may not read
 
     Returns:
-        DefaultResponse: The groups as person selections ``[{object_id, type_id, type_label, kind, label, active,
-            system_ref}]``, ascending by id
+        GetListResponse: The groups as person selections ``[{object_id, type_id, type_label, kind, label, active,
+            system_ref}]`` under ``results``, ascending by id
     """
     try:
         read_marked_object(SpecialType.PERSON, public_id, request_user)
 
-        return DefaultResponse(read_person_groups(public_id, request_user)).make_response()
+        return GetListResponse(results=read_person_groups(public_id, request_user)).make_response()
     except AccessDeniedError:
         abort(HTTPStatus.FORBIDDEN, _ACCESS_DENIED)
 
@@ -127,13 +127,14 @@ def patch_person_groups(public_id: int, data: dict[str, Any], request_user: Cmdb
             update answers for a group
 
     Returns:
-        DefaultResponse: The person's groups afterwards, as the `GET` answers them
+        UpdateMultiResponse: The person's groups afterwards under ``results``, as the `GET` answers them, and
+            ``failed`` - always empty: the change is all or none
     """
     try:
         read_marked_object(SpecialType.PERSON, public_id, request_user)
         change_person_groups(public_id, set(data.get(PersonGroupsChangeKey.ADD.value) or []),
                              set(data.get(PersonGroupsChangeKey.REMOVE.value) or []), request_user)
 
-        return DefaultResponse(read_person_groups(public_id, request_user)).make_response()
+        return UpdateMultiResponse(results=read_person_groups(public_id, request_user)).make_response()
     except AccessDeniedError:
         abort(HTTPStatus.FORBIDDEN, _ACCESS_DENIED)

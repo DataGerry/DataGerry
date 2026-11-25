@@ -69,7 +69,7 @@ from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import Webh
 from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_access import (
     build_event_masking_stage,
-    denied_object_type_ids,
+    denied_object_types,
     mask_event_object_values,
 )
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_summary import (
@@ -137,7 +137,7 @@ def get_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
             abort(404, f"The Webhook Event with ID: {public_id} was not found!")
 
         visible_event: dict[str, Any] = mask_event_object_values(
-            requested_webhook_event, denied_object_type_ids(request_user),
+            requested_webhook_event, denied_object_types(request_user),
         )
 
         return DefaultResponse(visible_event).make_response()
@@ -193,7 +193,7 @@ def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> 
         # The mask first, before the caller's ?filter= stages: what is masked here cannot be matched on after it.
         # The summary projection last: the filter still sees every field, the database sends only the scalars
         builder_params.criteria = build_event_list_criteria(
-            build_event_masking_stage(denied_object_type_ids(request_user)), builder_params.get_criteria(),
+            build_event_masking_stage(denied_object_types(request_user)), builder_params.get_criteria(),
         )
 
         documents, total = webhook_events_manager.iterate_query(builder_params)

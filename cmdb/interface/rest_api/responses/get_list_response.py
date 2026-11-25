@@ -35,8 +35,8 @@ class GetListResponse(BaseAPIResponse):
     """
     API Response for a simple list without iteration
 
-    It answers its rows whole: ``?projection=`` belongs to the paged lists (`GetMultiResponse`), and the one route on
-    this class takes no collection parameters
+    It answers its rows whole: ``?projection=`` belongs to the paged lists (`GetMultiResponse`), and the routes on this
+    class take no collection parameters
     """
     def __init__(
             self,

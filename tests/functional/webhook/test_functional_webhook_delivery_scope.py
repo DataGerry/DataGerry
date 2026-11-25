@@ -39,6 +39,7 @@ from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 
 from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 WEBHOOKS_URL: str = '/webhooks'
@@ -86,7 +87,8 @@ def _webhook_doc(webhook_id: int, owner_id: int | None) -> dict[str, Any]:
 @pytest.fixture(name='posted', autouse=True)
 def fixture_posted(database_manager: MongoDatabaseManager, database_name: str, monkeypatch: pytest.MonkeyPatch):
     """
-    Seeds the types, objects, owners and webhooks, records every POST, and purges it all after
+    Seeds the types (with the access rules their ACLs translate to), objects, owners and webhooks, records every POST,
+    and purges it all after
 
     The delivery runs on the calling thread and the .test hosts are let through the destination check; nothing
     leaves the process
@@ -130,7 +132,10 @@ def fixture_posted(database_manager: MongoDatabaseManager, database_name: str, m
     monkeypatch.setattr(webhook_helper, 'refused_destination_reason', lambda *_a, **_k: None)
     monkeypatch.setattr(webhook_helper.requests, 'post', _post)
 
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [DENIED_TYPE_ID, OPEN_TYPE_ID])
     yield posted
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

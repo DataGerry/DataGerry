@@ -32,11 +32,15 @@ from cmdb.manager import ObjectsManager, SettingsManager
 from cmdb.models.object_model import CmdbObjectKey, SystemRefKind
 from cmdb.models.type_model import CmdbType
 
-from cmdb.framework.person_sync.person_sync_constants import SyncGuardProblem
+from cmdb.framework.person_sync.person_sync_constants import PERSON_GROUP_FILLED_FIELDS, SyncGuardProblem
 from cmdb.framework.person_sync.sync_documents import linked_kind, linked_record_id
 from cmdb.framework.person_sync.sync_reads import linked_person_type_ids
 from cmdb.framework.person_sync.sync_settings import PersonSyncSettings, read_sync_settings
-from cmdb.framework.person_sync.sync_settings_rules import target_type_problems, unfillable_field_names
+from cmdb.framework.person_sync.sync_settings_rules import (
+    person_group_type_problems,
+    target_type_problems,
+    unfillable_field_names,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -46,6 +50,8 @@ __all__: list[str] = [
     'target_type_change_refusal',
     'guarded_person_type_ids',
     'template_change_refusal',
+    'group_default_change_refusal',
+    'group_default_template_refusal',
 ]
 
 # Joins the refusals of one delete selection, and the problems of one Type change
@@ -104,7 +110,8 @@ def enforce_synced_objects_delete(objects_manager: ObjectsManager, target_object
 
 def target_type_delete_refusal(settings: PersonSyncSettings, type_id: int) -> str | None:
     """
-    Refuses deleting a Type the user sync is set to write into - the default or a user's override
+    Refuses deleting a Type the user sync is set to write into - the default or a user's override - or the user group
+    sync's default Type, whatever the switches
 
     Args:
         settings (PersonSyncSettings): The stored sync settings
@@ -115,6 +122,9 @@ def target_type_delete_refusal(settings: PersonSyncSettings, type_id: int) -> st
     """
     if type_id in settings.users.target_type_ids():
         return SyncGuardProblem.TARGET_TYPE_DELETE.value.format(type_id=type_id)
+
+    if type_id == settings.groups.default_type_id:
+        return SyncGuardProblem.GROUP_DEFAULT_TYPE_DELETE.value.format(type_id=type_id)
 
     return None
 
@@ -192,4 +202,59 @@ def template_change_refusal(template_name: str,
 
     return SyncGuardProblem.TARGET_TEMPLATE_CHANGE.value.format(
         name=template_name, type_ids=sorted(consuming_target_ids), names=unfillable,
+    )
+
+
+def group_default_change_refusal(settings: PersonSyncSettings, new_type: CmdbType) -> str | None:
+    """
+    Refuses a Type update that leaves the user group sync's default Type one it cannot create person groups in -
+    deactivated, or requiring a field beyond the name and members without a usable default. Any other Type is never
+    judged
+
+    Args:
+        settings (PersonSyncSettings): The stored sync settings
+        new_type (CmdbType): The Type the update would store
+
+    Returns:
+        str | None: The refusal naming every problem, or None
+    """
+    if new_type.public_id != settings.groups.default_type_id:
+        return None
+
+    problems: list[str] = person_group_type_problems(new_type.public_id, new_type)
+
+    if not problems:
+        return None
+
+    return SyncGuardProblem.GROUP_DEFAULT_TYPE_CHANGE.value.format(
+        type_id=new_type.public_id, problems=SYNC_GUARD_SEPARATOR.join(problems),
+    )
+
+
+def group_default_template_refusal(template_name: str, new_fields: list[dict[str, Any]], in_rows: bool,
+                                   default_type_id: int | None) -> str | None:
+    """
+    Refuses a global section template update that would make the user group sync's default Type require a field the
+    sync cannot fill - anything but the name and members without a usable default. A multi-data section template's
+    fields live in rows, which the sync never writes
+
+    Args:
+        template_name (str): The template's name - its section's name on the Types
+        new_fields (list[dict[str, Any]]): The template's fields as the update would store them
+        in_rows (bool): Whether the template is a multi-data section
+        default_type_id (int | None): The default Type when it carries the template's section, else None
+
+    Returns:
+        str | None: The refusal naming the Type and the fields, or None
+    """
+    if default_type_id is None or in_rows:
+        return None
+
+    unfillable: list[str] = unfillable_field_names(new_fields, filled=PERSON_GROUP_FILLED_FIELDS)
+
+    if not unfillable:
+        return None
+
+    return SyncGuardProblem.GROUP_DEFAULT_TEMPLATE_CHANGE.value.format(
+        name=template_name, type_id=default_type_id, names=unfillable,
     )

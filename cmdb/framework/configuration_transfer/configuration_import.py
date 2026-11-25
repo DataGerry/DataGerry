@@ -46,10 +46,12 @@ from cmdb.framework.configuration_transfer.configuration_transfer_constants impo
     SYSTEM_TYPES_REMOVED,
     USER_SETTINGS_CLEARED,
     WHOLE_DOCUMENT,
+    TransferComponentName,
     TransferFileKey,
     TransferSectionKey,
 )
 from cmdb.framework.configuration_transfer.transfer_component import PUBLIC_ID_KEY, TransferComponent
+from cmdb.framework.access_engine import acl_is_activated
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PREDEFINED_CRITERIA: dict[str, Any] = {SectionTemplateKey.PREDEFINED.value: True}
@@ -226,3 +228,24 @@ def import_configuration(components: Sequence[TransferComponent], transfer_file:
     clear_user_settings(user_settings_manager, ledger)
 
     return imported
+
+
+def activated_acl_count(transfer_file: Any) -> int:
+    """
+    How many Types of a transfer file carry an activated ``acl`` - an access the import does not take over (every
+    imported Type stores the default block; access is managed through the access rules)
+
+    Args:
+        transfer_file (Any): The decoded transfer file - any shape; one without a readable types section counts none
+
+    Returns:
+        int: The count
+    """
+    components: Any = transfer_file.get(TransferFileKey.COMPONENTS.value) if isinstance(transfer_file, dict) else None
+    section: Any = components.get(TransferComponentName.TYPES.value) if isinstance(components, dict) else None
+    items: Any = section.get(TransferSectionKey.ITEMS.value) if isinstance(section, dict) else None
+
+    if not isinstance(items, list):
+        return 0
+
+    return sum(1 for item in items if isinstance(item, dict) and acl_is_activated(item))

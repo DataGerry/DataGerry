@@ -19,7 +19,8 @@ Unit tests for cmdb.framework.ci_explorer.access
 Pure tests: no Mongo, no Flask. The module is the object-ACL filter the whole graph runs through,
 so what is pinned here is exactly what may and may not reach the payload:
 
-  - an ACL is a property of the CmdbType, so the decision is per type and costs no query
+  - the decision is per type (the access engine's, answering here from the in-memory Types' ACLs through
+    ``decide_by_type_acls``) and costs no object query
   - a denied object is dropped, and nothing distinguishes it from an object that is not there
   - an orphan - an object whose type_id resolves to no CmdbType - passes, matching acl/builder.py
   - no user means no filtering, the convention every manager here follows for an internal caller
@@ -31,6 +32,7 @@ import pytest
 
 from unittest.mock import MagicMock
 
+from cmdb.framework import access_engine
 from cmdb.framework.ci_explorer.access import (
     CI_EXPLORER_PERMISSION,
     collect_denied_type_ids,
@@ -38,9 +40,9 @@ from cmdb.framework.ci_explorer.access import (
     is_denied,
     load_denied_type_ids,
 )
-from cmdb.security.acl.builder import DENIED_TYPES_PROJECTION, build_denied_types_criteria
 from cmdb.security.acl.acl_constants import AclKey
 from cmdb.security.acl.permission import AccessControlPermission
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 
 GROUP_ID: int = 2
@@ -79,6 +81,17 @@ def _object(public_id: int, type_id: int) -> dict[str, Any]:
     return {'public_id': public_id, 'type_id': type_id}
 
 
+def _decided(monkeypatch: pytest.MonkeyPatch, types_by_id: dict[int, dict[str, Any]]) -> None:
+    """
+    Lets the engine answer from the given Types' ACLs
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The test's monkeypatch
+        types_by_id (dict[int, dict[str, Any]]): The in-scope Types by public_id
+    """
+    decide_by_type_acls(monkeypatch, types_by_id.values())
+
+
 class TestCollectDeniedTypeIds:
     """Which of the in-scope types the requesting user may not read."""
 
@@ -88,44 +101,54 @@ class TestCollectDeniedTypeIds:
 
         assert collect_denied_type_ids(types_by_id, None) == set()
 
-    def test_types_without_an_acl_are_never_denied(self) -> None:
+    def test_types_without_an_acl_are_never_denied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The common case: most installations activate an ACL on few types or none."""
         types_by_id = {OPEN_TYPE_ID: _type_doc(OPEN_TYPE_ID)}
 
+        _decided(monkeypatch, types_by_id)
+
         assert collect_denied_type_ids(types_by_id, _user()) == set()
 
-    def test_an_activated_acl_without_the_group_is_denied(self) -> None:
+    def test_an_activated_acl_without_the_group_is_denied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """An ACL that names no group at all denies everyone - it fails closed."""
         types_by_id = {
             OPEN_TYPE_ID: _type_doc(OPEN_TYPE_ID),
             DENIED_TYPE_ID: _type_doc(DENIED_TYPE_ID, _locked_acl()),
         }
 
+        _decided(monkeypatch, types_by_id)
+
         assert collect_denied_type_ids(types_by_id, _user()) == {DENIED_TYPE_ID}
 
-    def test_the_users_own_group_decides(self) -> None:
+    def test_the_users_own_group_decides(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The same type is denied to one group and open to another."""
         types_by_id = {
             DENIED_TYPE_ID: _type_doc(DENIED_TYPE_ID, _locked_acl({str(GROUP_ID): ['READ']})),
         }
 
+        _decided(monkeypatch, types_by_id)
+
         assert collect_denied_type_ids(types_by_id, _user(GROUP_ID)) == set()
         assert collect_denied_type_ids(types_by_id, _user(OTHER_GROUP_ID)) == {DENIED_TYPE_ID}
 
-    def test_read_is_the_permission_the_graph_asks_for(self) -> None:
+    def test_read_is_the_permission_the_graph_asks_for(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A group holding only UPDATE may not read, and the graph is a read surface."""
         types_by_id = {
             DENIED_TYPE_ID: _type_doc(DENIED_TYPE_ID, _locked_acl({str(GROUP_ID): ['UPDATE']})),
         }
 
+        _decided(monkeypatch, types_by_id)
+
         assert CI_EXPLORER_PERMISSION is AccessControlPermission.READ
         assert collect_denied_type_ids(types_by_id, _user()) == {DENIED_TYPE_ID}
 
-    def test_the_permission_is_overridable(self) -> None:
+    def test_the_permission_is_overridable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The default is READ, but the parameter is real - a future writer can ask for another."""
         types_by_id = {
             DENIED_TYPE_ID: _type_doc(DENIED_TYPE_ID, _locked_acl({str(GROUP_ID): ['READ']})),
         }
+
+        _decided(monkeypatch, types_by_id)
 
         assert collect_denied_type_ids(
             types_by_id, _user(), AccessControlPermission.UPDATE,
@@ -197,31 +220,29 @@ class TestLoadDeniedTypeIds:
         types_manager = MagicMock()
 
         assert load_denied_type_ids(types_manager, None) == frozenset()
-        types_manager.find.assert_not_called()
+        types_manager.get_denied_type_ids.assert_not_called()
 
-    def test_one_projected_query_for_the_users_group(self) -> None:
-        """The shared rule's criteria, READ, and only the ids projected"""
+    def test_the_engines_denied_types(self) -> None:
+        """The Types manager's denied ids (the access engine), asked for READ"""
         types_manager = MagicMock()
-        types_manager.find.return_value = [{'public_id': DENIED_TYPE_ID}, {'public_id': ORPHAN_TYPE_ID}]
+        types_manager.get_denied_type_ids.return_value = [DENIED_TYPE_ID, ORPHAN_TYPE_ID]
 
-        denied = load_denied_type_ids(types_manager, _user())
+        assert load_denied_type_ids(types_manager, _user()) == frozenset({DENIED_TYPE_ID, ORPHAN_TYPE_ID})
+        types_manager.get_denied_type_ids.assert_called_once()
+        assert types_manager.get_denied_type_ids.call_args.args[1] is AccessControlPermission.READ
 
-        assert denied == frozenset({DENIED_TYPE_ID, ORPHAN_TYPE_ID})
-        types_manager.find.assert_called_once_with(
-            criteria=build_denied_types_criteria([GROUP_ID], AccessControlPermission.READ),
-            projection=DENIED_TYPES_PROJECTION,
-        )
-
-    def test_a_document_without_an_id_is_skipped(self) -> None:
-        """Nothing to exclude by"""
-        types_manager = MagicMock()
-        types_manager.find.return_value = [{'public_id': None}, {}, {'public_id': OPEN_TYPE_ID}]
-
-        assert load_denied_type_ids(types_manager, _user()) == frozenset({OPEN_TYPE_ID})
-
-    def test_it_agrees_with_the_per_object_pass(self) -> None:
-        """Both read an ACL alike: the documents the query would return are the ones the pass denies"""
+    def test_it_agrees_with_the_per_object_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Both ask the engine alike: the up-front read denies the very Types the per-object pass denies"""
         documents = [_type_doc(OPEN_TYPE_ID), _type_doc(DENIED_TYPE_ID, _locked_acl()),
                      _type_doc(ORPHAN_TYPE_ID, _locked_acl({str(GROUP_ID): ['READ']}))]
+        types_by_id = {document['public_id']: document for document in documents}
+        _decided(monkeypatch, types_by_id)
+        types_manager = MagicMock()
+        types_manager.get_denied_type_ids.side_effect = (
+            lambda user, permission: access_engine.denied_type_ids(
+                user, access_engine.permission_operations(permission),
+            )
+        )
 
-        assert collect_denied_type_ids({d['public_id']: d for d in documents}, _user()) == {DENIED_TYPE_ID}
+        assert load_denied_type_ids(types_manager, _user()) == collect_denied_type_ids(types_by_id, _user())
+        assert collect_denied_type_ids(types_by_id, _user()) == {DENIED_TYPE_ID}

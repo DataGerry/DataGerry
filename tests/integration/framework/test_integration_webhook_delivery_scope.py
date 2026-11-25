@@ -43,6 +43,7 @@ from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 
 from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOOPBACK: str = '127.0.0.1'
@@ -88,7 +89,10 @@ def _url(server: HTTPServer) -> str:
 @pytest.fixture(name='receivers')
 def fixture_receivers(database_manager: MongoDatabaseManager, database_name: str,
                       monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[int, list[dict[str, Any]]]]:
-    """Seeds the type, objects, owner and two webhooks on two receivers; purges and stops them after"""
+    """
+    Seeds the type (with the access rules its ACL translates to), objects, owner and two webhooks on two receivers;
+    purges and stops them after
+    """
     def _collection(name: str):
         return database_manager.get_collection(name, database_name)
 
@@ -126,8 +130,11 @@ def fixture_receivers(database_manager: MongoDatabaseManager, database_name: str
         LOOPBACK_NETWORK if (section, name) == ('Webhooks', 'allowed_hosts') else default)
     monkeypatch.setattr(webhook_destination, 'SystemConfigReader', lambda: reader)
 
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], [DENIED_TYPE_ID])
+
     yield {ADMIN_HOOK_ID: admin_received, NARROW_HOOK_ID: narrow_received}
 
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
     for server in (admin_server, narrow_server):
         server.shutdown()

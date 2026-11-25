@@ -28,6 +28,8 @@ rights. Pinned, for that caller:
   - a delete of a hidden log is a 403 and deletes nothing; a readable one is deleted and answered
   - a failed type-ACL read is a 400 on all three routes, never "nothing denied"
   - the admin, who may read every type, reads and lists every log as before
+  - with a role on every Type assigned, a null-stamped or unstamped log is hidden from the list, and a 403 on a
+    single read and a delete - the access engine admits the granted Types only
 """
 import json
 from http import HTTPStatus
@@ -36,10 +38,11 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.models.access_model import CmdbAccessAssignment, CmdbScopeRole
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.location_model.location_constants import RootLocationDefault
 from cmdb.models.log_model import CmdbObjectRelationLog
-from cmdb.interface.rest_api.routes.relation_routes import relations_helper
+from cmdb.interface.rest_api.routes.relation_routes import relation_log_access
 from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE,
     OBJECT_RELATION_LOG_ACCESS_DENIED_MESSAGE,
@@ -60,6 +63,13 @@ UNSTAMPED_LOG_ID: int = 89865      # written before the stamp
 ALL_LOG_IDS: list[int] = [READABLE_LOG_ID, HIDDEN_CHILD_LOG_ID, HIDDEN_PARENT_LOG_ID, NULL_LOG_ID, UNSTAMPED_LOG_ID]
 HIDDEN_LOG_IDS: list[int] = [HIDDEN_CHILD_LOG_ID, HIDDEN_PARENT_LOG_ID]
 READABLE_LOG_IDS: list[int] = [READABLE_LOG_ID, NULL_LOG_ID, UNSTAMPED_LOG_ID]
+
+# The every-Type case: a role on every Type for another group, a view role on VISIBLE and PLAIN for the caller
+OTHER_GROUP_ID: int = 89871
+EVERY_ROLE_ID: int = 89872
+GRANTING_ROLE_ID: int = 89873
+EVERY_ASSIGNMENT_ID: int = 89874
+GRANTING_ASSIGNMENT_ID: int = 89875
 
 LOG_RIGHTS: list[str] = [ObjectRelationLogRight.VIEW.value, ObjectRelationLogRight.DELETE.value]
 
@@ -197,9 +207,9 @@ class TestDelete:
 
     def test_a_log_deleted_meanwhile_is_a_404(self, rest_api, logs, monkeypatch: pytest.MonkeyPatch) -> None:
         """The read found it, another request removed it before the delete ran"""
-        original = relations_helper.read_object_relation_log_or_abort
+        original = relation_log_access.read_object_relation_log_or_abort
 
-        def _read_then_lose(manager: Any, public_id: int, denied: list[int]) -> dict[str, Any]:
+        def _read_then_lose(manager: Any, public_id: int, denied: Any) -> dict[str, Any]:
             found: dict[str, Any] = original(manager, public_id, denied)
             logs.delete_one({'public_id': public_id})
 
@@ -223,10 +233,48 @@ class TestDelete:
 def test_a_failed_type_acl_read_is_a_400_and_deletes_nothing(rest_api, logs, monkeypatch: pytest.MonkeyPatch,
                                                               call: Any) -> None:
     """Never read as "nothing denied" """
-    monkeypatch.setattr(relations_helper, 'resolve_denied_type_ids', _fail)
+    monkeypatch.setattr(relation_log_access, 'resolve_denied_types', _fail)
 
     response = call(rest_api)
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
     assert response.get_json()['message'] == OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE
     assert _stored_ids(logs) == set(ALL_LOG_IDS)
+
+
+class TestEveryTypeRestricted:
+    """A role on every Type is assigned to another group; the caller views VISIBLE and PLAIN by its own role. The
+    access engine then admits only those two, so a log stamped with no Type - null or no key - is hidden too"""
+
+    @pytest.fixture(autouse=True)
+    def _every_type_role(self, database_manager: MongoDatabaseManager, database_name: str):
+        """The two roles and their assignments; removed after"""
+        database = database_manager.connector.client[database_name]
+        database[CmdbScopeRole.COLLECTION].insert_many([
+            {'public_id': EVERY_ROLE_ID, 'name': 'every', 'types': '*', 'operations': ['view'],
+             'write_regular_fields': True, 'field_classes': []},
+            {'public_id': GRANTING_ROLE_ID, 'name': 'granting', 'types': [seed.VISIBLE_TYPE_ID, seed.PLAIN_TYPE_ID],
+             'operations': ['view'], 'write_regular_fields': True, 'field_classes': []},
+        ])
+        database[CmdbAccessAssignment.COLLECTION].insert_many([
+            {'public_id': EVERY_ASSIGNMENT_ID, 'group_id': OTHER_GROUP_ID, 'role_id': EVERY_ROLE_ID, 'scope': '*'},
+            {'public_id': GRANTING_ASSIGNMENT_ID, 'group_id': seed.EDITOR_GROUP_ID, 'role_id': GRANTING_ROLE_ID,
+             'scope': '*'},
+        ])
+        yield
+        database[CmdbScopeRole.COLLECTION].delete_many({'public_id': {'$in': [EVERY_ROLE_ID, GRANTING_ROLE_ID]}})
+        database[CmdbAccessAssignment.COLLECTION].delete_many(
+            {'public_id': {'$in': [EVERY_ASSIGNMENT_ID, GRANTING_ASSIGNMENT_ID]}})
+
+    def test_the_list_keeps_only_the_log_of_two_admitted_types(self, rest_api) -> None:
+        """The rows and the total"""
+        assert _listed(rest_api, {}, **_caller()) == ([READABLE_LOG_ID], 1)
+
+    @pytest.mark.parametrize('public_id', [NULL_LOG_ID, UNSTAMPED_LOG_ID], ids=['null', 'unstamped'])
+    def test_a_log_of_no_type_is_a_403_on_read_and_delete(self, rest_api, logs, public_id: int) -> None:
+        """Judged like the list; nothing is deleted"""
+        read = rest_api.get(SINGLE_URL.format(public_id=public_id), **_caller())
+        deleted = rest_api.delete(SINGLE_URL.format(public_id=public_id), **_caller())
+
+        assert (read.status_code, deleted.status_code) == (HTTPStatus.FORBIDDEN, HTTPStatus.FORBIDDEN)
+        assert _stored_ids(logs) == set(ALL_LOG_IDS)

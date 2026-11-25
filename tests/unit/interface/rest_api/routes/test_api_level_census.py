@@ -91,6 +91,13 @@ FILE_LEVELS: dict[str, str] = {
     'setup_routes/setup_routes.py': SUPER_ADMIN,
     'user_management_routes/users_routes.py': SUPER_ADMIN,
     'user_management_routes/person_sync_routes.py': SUPER_ADMIN,
+    # The access rules are the tenant's setup like the sync: the writes need the account's own level
+    'access_routes/field_class_routes.py': SUPER_ADMIN,
+    'access_routes/scope_role_routes.py': SUPER_ADMIN,
+    'access_routes/assignment_routes.py': SUPER_ADMIN,
+    # Its one route reads, like every read of the access rules: ADMIN
+    'access_routes/migration_report_routes.py': ADMIN,
+    'access_routes/type_assignment_routes.py': ADMIN,
     # Rebuilds or wipes the tenant's whole configuration
     'configuration_transfer_routes/configuration_transfer_routes.py': SUPER_ADMIN,
     # The feature and presentation surfaces: never the cloud API key
@@ -170,6 +177,13 @@ ROUTE_EXCEPTIONS: dict[str, dict[str, str]] = {
         'get_user_person': ADMIN,
         'check_user_sync_route': ADMIN,
     },
+    # Reading the access rules is an ADMIN read
+    'access_routes/field_class_routes.py': {'get_field_classes': ADMIN, 'get_field_class': ADMIN,
+                                            'get_field_class_usage': ADMIN},
+    'access_routes/scope_role_routes.py': {'get_scope_roles': ADMIN, 'get_scope_role': ADMIN,
+                                           'get_scope_role_usage': ADMIN},
+    'access_routes/assignment_routes.py': {'get_assignments': ADMIN, 'get_assignment': ADMIN,
+                                           'get_assignment_usage': ADMIN},
 }
 
 # Routes that declare no level at all: (file, function) -> why

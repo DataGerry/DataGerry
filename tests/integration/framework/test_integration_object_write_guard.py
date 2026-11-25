@@ -36,7 +36,11 @@ from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.manager.objects_manager import ObjectsManagerDeleteError
 from cmdb.errors.security import AccessDeniedError
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The access engine reads the stored access rules through the ManagerProvider - it needs the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
 
 READ_ONLY_TYPE_ID: int = 96910
 DELETABLE_TYPE_ID: int = 96911
@@ -61,7 +65,10 @@ def _type_document(public_id: int, permissions: list[str] | None, active: bool =
 
 @pytest.fixture(name='objects_manager')
 def fixture_objects_manager(database_manager: MongoDatabaseManager, database_name: str):
-    """Seeds the three types and yields an ObjectsManager over the test database."""
+    """
+    Seeds the three types (with the access rules their ACLs translate to) and yields an ObjectsManager over the test
+    database.
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     types.delete_many({'public_id': {'$in': TYPE_IDS}})
     types.insert_many([
@@ -69,7 +76,9 @@ def fixture_objects_manager(database_manager: MongoDatabaseManager, database_nam
         _type_document(DELETABLE_TYPE_ID, [AccessControlPermission.READ.value, AccessControlPermission.DELETE.value]),
         _type_document(DEACTIVATED_TYPE_ID, None, active=False),
     ])
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], TYPE_IDS)
     yield ObjectsManager(database_manager)
+    remove_type_access(database_manager.connector.client[database_name], access)
     types.delete_many({'public_id': {'$in': TYPE_IDS}})
 
 

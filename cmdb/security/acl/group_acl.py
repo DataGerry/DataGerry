@@ -25,6 +25,7 @@ from typing import Any
 
 from cmdb.security.acl.access_control_list_section import AccessControlListSection, PermissionValues
 from cmdb.security.acl.acl_constants import AclKey
+from cmdb.security.acl.acl_groups import group_key_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -55,16 +56,28 @@ class GroupACL(AccessControlListSection[int]):
         """
         Converts every group key to the int a CmdbUser's ``group_ids`` hold
 
+        A key that is no group id (``acl_groups.group_key_id``) is left out, with a warning: it names no group, so it
+        grants nobody - the reading the listing filter has, which only ever looks up the user's own group keys. The
+        type write schema refuses such a key, so only a document written around it carries one
+
         Args:
             value (dict[str | int, PermissionValues]): The mapping handed to the `includes` setter
 
         Returns:
-            dict[int, PermissionValues]: The same mapping, keyed by int
-
-        Raises:
-            ValueError: When a key is not a whole number - the type write schema only admits digit keys
+            dict[int, PermissionValues]: The mapping, keyed by int, without the keys that are no group id
         """
-        return {int(key): permissions for key, permissions in value.items()}
+        normalised: dict[int, PermissionValues] = {}
+
+        for key, permissions in value.items():
+            group_id: int | None = group_key_id(key)
+
+            if group_id is None:
+                LOGGER.warning("[GroupACL] The ACL key %r is no user group id - it grants nobody and is left out", key)
+                continue
+
+            normalised[group_id] = permissions
+
+        return normalised
 
 
     @classmethod

@@ -39,6 +39,7 @@ from cmdb.models.reports_model.report_query import eval_stored_report_query
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Every test here reaches the database through ManagerProvider, which reads the REST app's context
@@ -75,7 +76,10 @@ def _object(public_id: int, type_id: int) -> dict[str, Any]:
 
 @pytest.fixture(name='seeded', autouse=True)
 def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
-    """A readable and a denied type with their objects, purged before and after"""
+    """
+    A readable and a denied type with their objects and the access rules their ACLs translate to, purged before and
+    after
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
 
@@ -89,7 +93,10 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
         [_object(public_id, READABLE_TYPE_ID) for public_id in READABLE_OBJECT_IDS]
         + [_object(public_id, DENIED_TYPE_ID) for public_id in DENIED_OBJECT_IDS]
     )
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [READABLE_TYPE_ID, DENIED_TYPE_ID])
     yield
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

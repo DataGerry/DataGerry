@@ -43,6 +43,9 @@ from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
 from cmdb.manager.object_groups_manager import ObjectGroupsManager
 from cmdb.manager.user_settings_manager import UserSettingsManager
 from cmdb.manager.ci_explorer_profile_manager import CiExplorerProfileManager
+from cmdb.manager.field_classes_manager import FieldClassesManager
+from cmdb.manager.scope_roles_manager import ScopeRolesManager
+from cmdb.manager.access_assignments_manager import AccessAssignmentsManager
 
 # System Managers
 from cmdb.manager.system_manager.settings_manager import SettingsManager
@@ -83,6 +86,9 @@ from cmdb.manager.license_manager.license_service import LicenseService
 __all__: list[str] = [
     'CategoriesManager',
     'CiExplorerProfileManager',
+    'FieldClassesManager',
+    'ScopeRolesManager',
+    'AccessAssignmentsManager',
     'DocapiTemplatesManager',
     'GroupsManager',
     'LocationsManager',

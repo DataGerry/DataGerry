@@ -61,6 +61,7 @@ from tests.functional.isms.test_functional_risk_assessment_route import (
     seed_referenced_risks,
 )
 from tests.utils.isms_reference_seed import ASSESSED_OBJECT_GROUP_ID
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/risk_assessments'
@@ -125,8 +126,8 @@ def _isms_licensed(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(name='assessments', autouse=True)
 def fixture_assessments(database_manager: MongoDatabaseManager, database_name: str) -> Iterator[Any]:
     """
-    The types, objects and writer; persons and Risks; an assessment of an open object and one whose object is gone.
-    Everything the tests write is removed again
+    The types (with the access rules their ACLs translate to), objects and writer; persons and Risks; an assessment
+    of an open object and one whose object is gone. Everything the tests write is removed again
     """
     collection = partial(database_manager.get_collection, db_name=database_name)
     assessments = collection(IsmsRiskAssessment.COLLECTION)
@@ -147,7 +148,10 @@ def fixture_assessments(database_manager: MongoDatabaseManager, database_name: s
         _ra_body(STORED_RA_ID, object_id_ref_type=OBJECT, object_id=OPEN_OBJECT_ID),
         _ra_body(STALE_RA_ID, object_id_ref_type=OBJECT, object_id=MISSING_OBJECT_ID),
     ])
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [OPEN_TYPE_ID, HIDDEN_TYPE_ID])
     yield assessments
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

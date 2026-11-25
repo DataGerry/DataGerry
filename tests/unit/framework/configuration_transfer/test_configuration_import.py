@@ -36,6 +36,7 @@ from cmdb.framework.configuration_transfer import (
 from cmdb.framework.configuration_transfer import configuration_import as module
 from cmdb.framework.configuration_transfer.configuration_import import (
     PREDEFINED_CRITERIA,
+    activated_acl_count,
     clear_user_settings,
     import_components,
     remove_predefined_templates,
@@ -216,3 +217,21 @@ def test_import_configuration_stops_at_the_first_failure(monkeypatch: pytest.Mon
         import_configuration([], {}, (MagicMock(), MagicMock(), MagicMock()), WriteLedger(), IMPORTER_ID)
 
     assert not reached
+
+
+class TestActivatedAclCount:
+    """activated_acl_count - the file's Types whose acl the import does not take over"""
+
+    def test_only_activated_blocks_count(self) -> None:
+        """On, off, absent, not a Type"""
+        items = [{'acl': {'activated': True}}, {'acl': {'activated': False}}, {}, 'not-a-type',
+                 {'acl': {'activated': True, 'groups': {'includes': {'2': ['READ']}}}}]
+
+        assert activated_acl_count({'components': {'types': {'items': items}}}) == 2
+
+    @pytest.mark.parametrize('transfer_file', [None, [], {}, {'components': []}, {'components': {'types': 3}},
+                                               {'components': {'types': {'items': 'x'}}}],
+                             ids=['none', 'list', 'empty', 'components-list', 'types-int', 'items-string'])
+    def test_an_unreadable_file_counts_none(self, transfer_file: Any) -> None:
+        """Never raises"""
+        assert activated_acl_count(transfer_file) == 0

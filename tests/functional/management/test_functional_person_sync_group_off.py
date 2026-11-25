@@ -19,8 +19,8 @@ Functional tests: the user group sync switched off, a user group unmapped, a map
 Over HTTP, from both syncs on with one mapped person group holding a synced and a hand-added person. Switching the
 group sync off keeps the mapping, the name, the members and the persons' active state, and unlocks the group; while
 off, a user leaving the user group or the user group renamed leaves the person group as it is; switching back on
-restores the name and the synced members and keeps the hand-added one. Unmapping - by the route or by deleting the
-user group - removes the link only: members kept, persons active, the group free
+restores the name and the synced members and keeps the hand-added one. A re-map (the user group adopts another
+person group) or deleting the user group removes the link only: members kept, persons active, the group free
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -44,10 +44,13 @@ from cmdb.framework.person_sync.person_sync_constants import PERSON_SYNC_SETTING
 SYNC_URL: str = '/person_sync'
 PERSON_TYPE_ID: int = 9901
 GROUP_TYPE_ID: int = 9902
+GROUP_ON: dict[str, Any] = {'active': True, 'default_type_id': GROUP_TYPE_ID}
+GROUP_OFF: dict[str, Any] = {**GROUP_ON, 'active': False}
 USER_GROUP_ID: int = 9911
 OTHER_USER_GROUP_ID: int = 9912
 USER_ID: int = 9921
 MAPPED_GROUP_ID: int = 9931
+ADOPTED_GROUP_ID: int = 9981
 HAND_PERSON_ID: int = 9932
 LABEL: str = 'Night Shift'
 HAND_NAME: str = 'Renamed by hand'
@@ -84,9 +87,10 @@ def fixture_db(rest_api, database_manager: MongoDatabaseManager, database_name: 
                    {'name': MEMBERS, 'value': [HAND_PERSON_ID], 'type': 'person'}],
     }])
     rest_api.put(f'{SYNC_URL}/users', json={'active': True, 'default_type_id': PERSON_TYPE_ID, 'type_overrides': []})
-    rest_api.put(f'{SYNC_URL}/groups', json={'active': True})
+    # Adopted before the group sync goes on, which gives every other user group a person group of its own
     assert rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}',
                         json={'person_group_id': MAPPED_GROUP_ID}).status_code == HTTPStatus.ACCEPTED
+    rest_api.put(f'{SYNC_URL}/groups', json=GROUP_ON)
 
     yield database
 
@@ -139,18 +143,18 @@ class TestGroupSyncOff:
         """The mapping listed, the link, the name, the members, the person active"""
         before: dict[str, Any] = _values(db)
 
-        response = rest_api.put(f'{SYNC_URL}/groups', json={'active': False})
+        response = rest_api.put(f'{SYNC_URL}/groups', json=GROUP_OFF)
 
         assert response.status_code == HTTPStatus.ACCEPTED
-        assert response.get_json()['result']['mappings'] == [
-            {'user_group_id': USER_GROUP_ID, 'person_group_id': MAPPED_GROUP_ID}]
+        assert {'user_group_id': USER_GROUP_ID, 'person_group_id': MAPPED_GROUP_ID} in response.get_json()['result'][
+            'mappings']
         assert _group(db)['system_ref'] == {'kind': 'user_group', 'id': USER_GROUP_ID}
         assert _values(db) == before
         assert _person_active(db) is True
 
     def test_the_group_is_free(self, rest_api, db: Any) -> None:
         """Its name and its synced member may change by hand"""
-        rest_api.put(f'{SYNC_URL}/groups', json={'active': False})
+        rest_api.put(f'{SYNC_URL}/groups', json=GROUP_OFF)
 
         assert _patch(rest_api, NAME, HAND_NAME).status_code == HTTPStatus.ACCEPTED
         assert _patch(rest_api, MEMBERS, [HAND_PERSON_ID]).status_code == HTTPStatus.ACCEPTED
@@ -158,7 +162,7 @@ class TestGroupSyncOff:
 
     def test_a_user_leaving_the_user_group_leaves_the_group_as_it_is(self, rest_api, db: Any) -> None:
         """The hooks do not touch person groups while the group sync is off"""
-        rest_api.put(f'{SYNC_URL}/groups', json={'active': False})
+        rest_api.put(f'{SYNC_URL}/groups', json=GROUP_OFF)
         members: list[int] = _values(db)[MEMBERS]
 
         response = rest_api.put(f'/users/{USER_ID}', json={'group_ids': [OTHER_USER_GROUP_ID]})
@@ -168,7 +172,7 @@ class TestGroupSyncOff:
 
     def test_renaming_the_user_group_leaves_the_name_as_it_is(self, rest_api, db: Any) -> None:
         """The label is synced only while the group sync is on"""
-        rest_api.put(f'{SYNC_URL}/groups', json={'active': False})
+        rest_api.put(f'{SYNC_URL}/groups', json=GROUP_OFF)
 
         response = rest_api.put(f'/groups/{USER_GROUP_ID}', json={
             'public_id': USER_GROUP_ID, 'name': 'fn-sync-night', 'label': 'Late Shift', 'rights': []})
@@ -178,11 +182,11 @@ class TestGroupSyncOff:
 
     def test_switching_back_on_restores_the_name_and_the_synced_members(self, rest_api, db: Any) -> None:
         """The hand-added person stays; the synced one is back; the label wins"""
-        rest_api.put(f'{SYNC_URL}/groups', json={'active': False})
+        rest_api.put(f'{SYNC_URL}/groups', json=GROUP_OFF)
         _patch(rest_api, NAME, HAND_NAME)
         _patch(rest_api, MEMBERS, [HAND_PERSON_ID])
 
-        response = rest_api.put(f'{SYNC_URL}/groups', json={'active': True})
+        response = rest_api.put(f'{SYNC_URL}/groups', json=GROUP_ON)
 
         assert response.status_code == HTTPStatus.ACCEPTED
         assert _values(db)[NAME] == LABEL
@@ -190,22 +194,34 @@ class TestGroupSyncOff:
 
 
 class TestUnmap:
-    """DELETE /person_sync/groups/<id> and DELETE /groups/<id>, with the group sync on."""
+    """A re-map (the user group adopts another person group) and DELETE /groups/<id>, with the group sync on."""
 
-    def test_unmapping_removes_the_link_only(self, rest_api, db: Any) -> None:
+    @staticmethod
+    def _re_map(rest_api, db: Any) -> None:
+        """The user group adopts another person group; the mapped one is unlinked"""
+        db[CmdbObject.COLLECTION].insert_one({
+            'public_id': ADOPTED_GROUP_ID, 'type_id': GROUP_TYPE_ID, 'author_id': 1, 'active': True,
+            'version': '1.0.0', 'special_type': SpecialType.PERSON_GROUP.value, 'multi_data_sections': [],
+            'fields': [{'name': NAME, 'value': 'adopted', 'type': 'text'}, {'name': MEMBERS, 'value': [],
+                                                                            'type': 'person'}]})
+
+        assert rest_api.put(f'{SYNC_URL}/groups/{USER_GROUP_ID}',
+                            json={'person_group_id': ADOPTED_GROUP_ID}).status_code == HTTPStatus.ACCEPTED
+
+    def test_a_re_map_removes_the_previous_link_only(self, rest_api, db: Any) -> None:
         """Members kept, person active, the group free"""
         before: dict[str, Any] = _values(db)
 
-        assert rest_api.delete(f'{SYNC_URL}/groups/{USER_GROUP_ID}').status_code == HTTPStatus.ACCEPTED
+        self._re_map(rest_api, db)
 
         assert 'system_ref' not in _group(db)
         assert _values(db) == before
         assert _person_active(db) is True
         assert _patch(rest_api, NAME, HAND_NAME).status_code == HTTPStatus.ACCEPTED
 
-    def test_an_unmapped_group_is_left_alone_by_the_sync(self, rest_api, db: Any) -> None:
+    def test_an_unlinked_group_is_left_alone_by_the_sync(self, rest_api, db: Any) -> None:
         """A resync and a user leaving change nothing on it"""
-        rest_api.delete(f'{SYNC_URL}/groups/{USER_GROUP_ID}')
+        self._re_map(rest_api, db)
         before: dict[str, Any] = _values(db)
 
         rest_api.put(f'/users/{USER_ID}', json={'group_ids': [OTHER_USER_GROUP_ID]})

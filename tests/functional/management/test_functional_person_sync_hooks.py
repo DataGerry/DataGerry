@@ -54,6 +54,8 @@ USERS_URL: str = '/users'
 GROUPS_URL: str = '/groups'
 PERSON_TYPE_ID: int = 9701
 GROUP_TYPE_ID: int = 9702
+GROUP_ON: dict[str, Any] = {'active': True, 'default_type_id': GROUP_TYPE_ID}
+GROUP_OFF: dict[str, Any] = {**GROUP_ON, 'active': False}
 USER_GROUP_ID: int = 9711
 TARGET_USER_GROUP_ID: int = 9712
 MAPPED_GROUP_ID: int = 9721
@@ -194,7 +196,7 @@ class TestUsers:
         assert rest_api.delete(f'{USERS_URL}/{user_id}').status_code == HTTPStatus.ACCEPTED
 
         assert read_sync_settings(settings_manager).users.type_overrides == {}
-        assert rest_api.put('/person_sync/groups', json={'active': False}).status_code == HTTPStatus.ACCEPTED
+        assert rest_api.put('/person_sync/groups', json=GROUP_OFF).status_code == HTTPStatus.ACCEPTED
 
     def test_a_deleted_user_reports_the_config_item_count_once(self, rest_api, monkeypatch) -> None:
         """The former user's person is a ConfigItem now; creating the user reported nothing"""
@@ -298,3 +300,54 @@ class TestGroups:
         group = db[CmdbObject.COLLECTION].find_one({'public_id': MAPPED_GROUP_ID})
         assert 'system_ref' not in group
         assert db[CmdbUser.COLLECTION].find_one({'public_id': user_id})['group_ids'] == [TARGET_USER_GROUP_ID]
+
+
+class TestANewUserGroup:
+    """POST /groups/ with both syncs on gives the new user group its person group - or stores nothing."""
+
+    NAME: str = 'fn-sync-new-group'
+
+    @pytest.fixture(autouse=True)
+    def _drop_the_new_group(self, db: Any) -> Iterator[None]:
+        """The created user group goes after each test"""
+        yield
+        db[CmdbUserGroup.COLLECTION].delete_many({'name': self.NAME})
+
+    def _create(self, rest_api) -> Any:
+        """Creates the user group"""
+        return rest_api.post(f'{GROUPS_URL}/', json={'name': self.NAME, 'label': 'New Desk', 'rights': []})
+
+    def test_it_gets_its_person_group_in_the_default_type(self, rest_api, db: Any,
+                                                          database_manager: MongoDatabaseManager,
+                                                          database_name: str) -> None:
+        """Named after the label, in the default, linked; its CREATE logged"""
+        write_sync_settings(SettingsManager(database_manager, database_name),
+                            replace(ON, groups=GroupSyncSettings(active=True, default_type_id=GROUP_TYPE_ID)))
+
+        response = self._create(rest_api)
+
+        assert response.status_code == HTTPStatus.CREATED
+        user_group_id: int = response.get_json()['result_id']
+        created = db[CmdbObject.COLLECTION].find_one({'system_ref': {'kind': 'user_group', 'id': user_group_id}})
+        assert (created['type_id'], _values(created)[PersonGroupField.NAME.value]) == (GROUP_TYPE_ID, 'New Desk')
+        assert db[CmdbMetaLog.COLLECTION].count_documents({'object_id': created['public_id']}) == 1
+        db[CmdbMetaLog.COLLECTION].delete_many({'object_id': created['public_id']})
+
+    def test_an_unusable_default_stores_nothing(self, rest_api, db: Any) -> None:
+        """No default chosen (stored past the rules): 500, the user group undone"""
+        response = self._create(rest_api)
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert db[CmdbUserGroup.COLLECTION].count_documents({'name': self.NAME}) == 0
+
+    def test_with_the_group_sync_off_none_is_created(self, rest_api, db: Any, database_manager: MongoDatabaseManager,
+                                                     database_name: str) -> None:
+        """The default chosen, the switch off"""
+        write_sync_settings(SettingsManager(database_manager, database_name),
+                            replace(ON, groups=GroupSyncSettings(default_type_id=GROUP_TYPE_ID)))
+
+        response = self._create(rest_api)
+
+        assert response.status_code == HTTPStatus.CREATED
+        assert db[CmdbObject.COLLECTION].count_documents(
+            {'system_ref.kind': 'user_group', 'system_ref.id': response.get_json()['result_id']}) == 0

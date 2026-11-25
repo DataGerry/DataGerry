@@ -47,8 +47,12 @@ from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPA
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.person_selector_rules import is_person_selector, person_selector_problems
-from cmdb.framework.person_sync.sync_guards import guarded_person_type_ids, template_change_refusal
-from cmdb.framework.person_sync.sync_settings import read_sync_settings
+from cmdb.framework.person_sync.sync_guards import (
+    group_default_template_refusal,
+    guarded_person_type_ids,
+    template_change_refusal,
+)
+from cmdb.framework.person_sync.sync_settings import PersonSyncSettings, read_sync_settings
 from cmdb.utils import str_to_bool
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_templates_constants import (
@@ -299,11 +303,13 @@ def guard_template_sync_targets(request_user: CmdbUser,
                                 params: dict[str, Any]) -> None:
     """
     Refuses a global template update that would make a Type the user sync writes persons into (a target, or one a
-    linked person lives in) require an unfillable field
+    linked person lives in) require an unfillable field - or the user group sync's default Type a field beyond the name
+    and members
 
     A global template's update is copied into every Type carrying its section (``handle_section_template_changes``),
     past the Type routes' own guard - so it is judged here, before the template is written. Reads the sync settings
-    for a global template only, and the consuming Types only while the sync writes into a Type
+    for a global template only, and the consuming Types only while the sync writes into a Type or a group default is
+    chosen
 
     Args:
         request_user (CmdbUser): The user making the request - names the tenant
@@ -319,19 +325,23 @@ def guard_template_sync_targets(request_user: CmdbUser,
 
     settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
     objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-    targets: set[int] = guarded_person_type_ids(read_sync_settings(settings_manager), objects_manager)
+    settings: PersonSyncSettings = read_sync_settings(settings_manager)
+    targets: set[int] = guarded_person_type_ids(settings, objects_manager)
+    group_default: int | None = settings.groups.default_type_id
 
-    if not targets:
+    if not targets and group_default is None:
         return
 
     name: str = params[SectionTemplateKey.NAME]
-    consuming_target_ids: list[int] = [
+    consuming_ids: set[int] = {
         a_type.public_id for a_type in section_templates_manager.get_types_using_template(name)
-        if a_type.public_id in targets and a_type.get_section(name) is not None
-    ]
-    refusal: str | None = template_change_refusal(
-        name, params[SectionTemplateKey.FIELDS], current_template.type == SectionType.MDS_SECTION.value,
-        consuming_target_ids,
+        if a_type.get_section(name) is not None
+    }
+    in_rows: bool = current_template.type == SectionType.MDS_SECTION.value
+    refusal: str | None = (
+        template_change_refusal(name, params[SectionTemplateKey.FIELDS], in_rows, sorted(consuming_ids & targets))
+        or group_default_template_refusal(name, params[SectionTemplateKey.FIELDS], in_rows,
+                                          group_default if group_default in consuming_ids else None)
     )
 
     if refusal:

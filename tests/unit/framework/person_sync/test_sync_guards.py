@@ -34,6 +34,8 @@ from cmdb.framework.person_sync.person_sync_constants import PersonSyncProblem, 
 from cmdb.framework.person_sync.sync_settings import GroupSyncSettings, PersonSyncSettings, UserSyncSettings
 from cmdb.framework.person_sync.sync_guards import (
     enforce_synced_objects_delete,
+    group_default_change_refusal,
+    group_default_template_refusal,
     synced_object_delete_refusals,
     guarded_person_type_ids,
     target_type_change_refusal,
@@ -51,6 +53,7 @@ USER_GROUP_ID: int = 4
 DEFAULT_TYPE_ID: int = 51
 OVERRIDE_TYPE_ID: int = 52
 OTHER_TYPE_ID: int = 53
+GROUP_TYPE_ID: int = 54
 TEMPLATE_NAME: str = 'badge'
 TEMPLATE_FIELD: str = 'badge_number'
 
@@ -139,6 +142,71 @@ class TestTargetTypeDelete:
     def test_another_type_may_go(self) -> None:
         """No target, no guard"""
         assert target_type_delete_refusal(CONFIGURED, OTHER_TYPE_ID) is None
+
+    def test_the_group_sync_default_is_refused_whatever_the_switch(self) -> None:
+        """Chosen is enough"""
+        settings = PersonSyncSettings(groups=GroupSyncSettings(default_type_id=GROUP_TYPE_ID))
+
+        assert target_type_delete_refusal(settings, GROUP_TYPE_ID) == (
+            SyncGuardProblem.GROUP_DEFAULT_TYPE_DELETE.value.format(type_id=GROUP_TYPE_ID))
+
+
+def _group_type(active: bool = True, own_required: bool = False) -> CmdbType:
+    """A PERSON_GROUP Type from the blueprint; an own required field without a default when asked"""
+    document: dict[str, Any] = build_default_person_type(SpecialType.PERSON_GROUP, 'groups', GROUP_TYPE_ID)
+    document['active'] = active
+
+    if own_required:
+        document['fields'].append({'type': 'text', 'name': TEMPLATE_FIELD, 'label': 'B', 'required': True})
+
+    return CmdbType.from_data(document)
+
+
+class TestGroupDefaultChange:
+    """The user group sync's default stays one it can create person groups in."""
+
+    DEFAULTING: PersonSyncSettings = PersonSyncSettings(groups=GroupSyncSettings(default_type_id=GROUP_TYPE_ID))
+
+    def test_a_usable_update_passes(self) -> None:
+        """Nothing to refuse"""
+        assert group_default_change_refusal(self.DEFAULTING, _group_type()) is None
+
+    def test_a_deactivated_default_with_an_unfillable_field_names_both(self) -> None:
+        """Every problem at once"""
+        refusal = group_default_change_refusal(self.DEFAULTING, _group_type(active=False, own_required=True))
+
+        assert refusal == SyncGuardProblem.GROUP_DEFAULT_TYPE_CHANGE.value.format(
+            type_id=GROUP_TYPE_ID, problems=' '.join([
+                PersonSyncProblem.TYPE_INACTIVE.value.format(type_id=GROUP_TYPE_ID),
+                PersonSyncProblem.TYPE_UNFILLABLE_FIELDS.value.format(type_id=GROUP_TYPE_ID, names=[TEMPLATE_FIELD]),
+            ]))
+
+    def test_another_type_is_never_judged(self) -> None:
+        """Not the default"""
+        assert group_default_change_refusal(PersonSyncSettings(), _group_type(active=False)) is None
+
+
+class TestGroupDefaultTemplate:
+    """A global template change may not make the group default require a field the sync cannot fill."""
+
+    REQUIRED: list[dict[str, Any]] = [{'type': 'text', 'name': TEMPLATE_FIELD, 'label': 'B', 'required': True}]
+
+    def test_a_required_field_without_default_is_refused(self) -> None:
+        """Named with the Type"""
+        assert group_default_template_refusal(TEMPLATE_NAME, self.REQUIRED, False, GROUP_TYPE_ID) == (
+            SyncGuardProblem.GROUP_DEFAULT_TEMPLATE_CHANGE.value.format(
+                name=TEMPLATE_NAME, type_id=GROUP_TYPE_ID, names=[TEMPLATE_FIELD]))
+
+    @pytest.mark.parametrize('fields, in_rows, default_type_id', [
+        (REQUIRED, True, GROUP_TYPE_ID),
+        (REQUIRED, False, None),
+        ([{'type': 'text', 'name': TEMPLATE_FIELD, 'label': 'B', 'required': True, 'value': 'x'}], False,
+         GROUP_TYPE_ID),
+        ([{'type': 'text', 'name': 'name', 'label': 'N', 'required': True}], False, GROUP_TYPE_ID),
+    ], ids=['in-rows', 'not-the-default', 'with-a-default', 'the-name-the-sync-fills'])
+    def test_what_passes(self, fields: list[dict[str, Any]], in_rows: bool, default_type_id: Any) -> None:
+        """Rows never written; another Type; a usable default; a field the sync fills"""
+        assert group_default_template_refusal(TEMPLATE_NAME, fields, in_rows, default_type_id) is None
 
 
 class TestTargetTypeChange:

@@ -30,7 +30,7 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager import LogsManager, TypesManager
+from cmdb.manager import LogsManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
 from cmdb.models.log_model.object_log_constants import OBJECT_LOG_TYPE
@@ -38,6 +38,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper import is_log_readable
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Every test here reaches the database through ManagerProvider, which reads the REST app's context
@@ -99,7 +100,7 @@ def _log(public_id: int, stamp: Any) -> dict[str, Any]:
 
 @pytest.fixture(name='seeded', autouse=True)
 def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
-    """The ACL'd types and one log per stamp, purged before and after"""
+    """The ACL'd types (with the access rules they translate to) and one log per stamp, purged before and after"""
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     logs = database_manager.get_collection(CmdbMetaLog.COLLECTION, database_name)
 
@@ -110,7 +111,9 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
     _purge()
     types.insert_many([dict(document) for document in TYPE_DOCUMENTS])
     logs.insert_many([_log(public_id, stamp) for public_id, stamp, _readable in LOG_MATRIX])
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], ALL_TYPE_IDS)
     yield logs
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 
@@ -133,7 +136,7 @@ def test_both_implementations_agree(
     stored: dict[str, Any] = seeded.find_one({'public_id': public_id})
     listed_ids, _total = _listed(database_manager)
 
-    single: bool = is_log_readable(stored, READER, TypesManager(database_manager))
+    single: bool = is_log_readable(stored, READER)
 
     assert single is readable
     assert (public_id in listed_ids) is readable

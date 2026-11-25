@@ -38,10 +38,10 @@ from cmdb.framework.person_sync.sync_engine import SyncContext, SyncResult
 from cmdb.framework.person_sync.sync_group_mapping import (
     existing_person_group_problems,
     map_user_group,
-    person_group_type_problems,
     read_group_mappings,
 )
 from cmdb.framework.person_sync.sync_settings import PersonSyncSettings
+from cmdb.framework.person_sync.sync_settings_rules import person_group_type_problems
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE: str = 'cmdb.framework.person_sync.sync_group_mapping'
@@ -117,7 +117,7 @@ class TestExistingPersonGroupProblems:
 
 
 class TestPersonGroupTypeProblems:
-    """The Type a new mapped person group is created in."""
+    """sync_settings_rules.person_group_type_problems - the Type a person group is created in."""
 
     def test_the_blueprint_passes(self) -> None:
         """Name and members are filled"""
@@ -164,7 +164,7 @@ class TestBuildPersonGroupDocument:
 
 
 class TestMapUserGroup:
-    """Link or create, then the group sync."""
+    """Unlink the previous person group, link the adopted one, then the group sync."""
 
     def test_an_existing_group_is_linked_into_the_ledger(self) -> None:
         """One update setting the link; its prior state recorded"""
@@ -172,7 +172,7 @@ class TestMapUserGroup:
         stored: dict[str, Any] = {'public_id': OBJECT_ID, 'special_type': SpecialType.PERSON_GROUP.value}
 
         with patch(f'{MODULE}.sync_user_group', return_value=SyncResult()) as synced:
-            public_id, result = map_user_group(context, ledger, USER_GROUP, person_group=stored)
+            public_id, result = map_user_group(context, ledger, USER_GROUP, stored)
 
         assert public_id == OBJECT_ID
         assert result.created == []
@@ -181,35 +181,30 @@ class TestMapUserGroup:
         ledger.updated.assert_called_once_with(context.objects_manager, OBJECT_ID, stored)
         synced.assert_called_once_with(context, ledger, USER_GROUP)
 
-    def test_a_new_group_is_created_and_counted(self) -> None:
-        """Inserted with the next id, recorded, answered as created"""
-        context, ledger = _context(), MagicMock()
-        context.objects_manager.get_new_object_public_id.return_value = NEW_ID
+    def test_the_previous_group_is_unlinked_first_and_its_edit_answered(self) -> None:
+        """An edit removing its link (logged as an unlink), then the adopted group's link"""
+        context, ledger, order = _context(), MagicMock(), MagicMock()
+        previous: dict[str, Any] = {'public_id': NEW_ID, 'fields': [], 'active': True,
+                                    'system_ref': {'kind': 'user_group', 'id': USER_GROUP_ID}}
+        unlink = MagicMock()
 
-        with patch(f'{MODULE}.sync_user_group', return_value=SyncResult()):
-            public_id, result = map_user_group(context, ledger, USER_GROUP, type_instance=_group_type())
+        with patch(f'{MODULE}.write_edit', return_value=unlink) as write_edit, \
+                patch(f'{MODULE}.sync_user_group', return_value=SyncResult()):
+            order.attach_mock(write_edit, 'write_edit')
+            order.attach_mock(context.objects_manager.update, 'link')
+            public_id, result = map_user_group(context, ledger, USER_GROUP, {'public_id': OBJECT_ID}, previous)
 
-        assert public_id == NEW_ID
-        assert result.created == [NEW_ID]
-        inserted: dict[str, Any] = context.objects_manager.insert.call_args.args[0]
-        assert inserted['system_ref'] == {'kind': 'user_group', 'id': USER_GROUP_ID}
-        ledger.inserted.assert_called_once_with(context.objects_manager, NEW_ID)
+        assert (public_id, result.edits, result.config_items_changed) == (OBJECT_ID, {NEW_ID: unlink}, True)
+        assert [name for name, _, _ in order.mock_calls] == ['write_edit', 'link']
+        write_edit.assert_called_once_with(context, ledger, previous,
+                                           {'public_id': NEW_ID, 'fields': [], 'active': True},
+                                           unset=('system_ref',))
 
     def test_the_group_syncs_edits_are_answered(self) -> None:
         """Merged into the result"""
         edit = MagicMock()
 
         with patch(f'{MODULE}.sync_user_group', return_value=SyncResult(edits={OBJECT_ID: edit})):
-            _, result = map_user_group(_context(), MagicMock(), USER_GROUP, person_group={'public_id': OBJECT_ID})
+            _, result = map_user_group(_context(), MagicMock(), USER_GROUP, {'public_id': OBJECT_ID})
 
         assert result.edits == {OBJECT_ID: edit}
-
-    def test_neither_target_is_a_programming_error(self) -> None:
-        """Nothing written"""
-        context = _context()
-
-        with pytest.raises(ValueError):
-            map_user_group(context, MagicMock(), USER_GROUP)
-
-        context.objects_manager.update.assert_not_called()
-        context.objects_manager.insert.assert_not_called()

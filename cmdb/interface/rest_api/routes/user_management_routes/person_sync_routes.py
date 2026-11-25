@@ -27,7 +27,6 @@ from werkzeug import Response
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.person_sync.person_sync_constants import GroupMappingKey, PersonSyncKey
-from cmdb.framework.person_sync.sync_engine import SyncResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -56,7 +55,6 @@ from cmdb.interface.rest_api.routes.user_management_routes.person_sync_routes_he
     resync,
     store_group_sync,
     store_user_sync,
-    unmap_group,
     user_person_link,
     user_sync_view,
 )
@@ -115,7 +113,8 @@ def update_user_sync(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
     Returns:
         UpdateSingleResponse: The stored user sync settings, with ``created`` / ``edited`` counts of everything
-            written and ``moved`` / ``copied`` counts of the relocation
+            written, ``moved`` / ``copied`` counts of the relocation and ``left``: the synced persons taken out of
+            mapped person groups
     """
     settings, result, relocations = store_user_sync(request_user, data)
 
@@ -160,13 +159,14 @@ def check_user_sync_route(data: dict[str, Any], request_user: CmdbUser) -> Respo
 @handle_route_errors("while retrieving the user group sync settings")
 def get_group_sync(request_user: CmdbUser) -> Response:
     """
-    HTTP `GET`/`HEAD` route for the user group sync's switch and every user group mapping
+    HTTP `GET`/`HEAD` route for the user group sync's settings and every user group mapping
 
     Args:
         request_user (CmdbUser): The caller
 
     Returns:
-        GetSingleResponse: ``active`` and ``mappings`` (``{user_group_id, person_group_id}`` in user group order)
+        GetSingleResponse: ``active``, ``default_type_id`` and ``mappings`` (``{user_group_id, person_group_id}`` in
+            user group order)
     """
     view: dict[str, Any] = group_sync_view(read_settings(request_user), read_mappings(request_user))
 
@@ -181,23 +181,26 @@ def get_group_sync(request_user: CmdbUser) -> Response:
 @handle_route_errors("while storing the user group sync settings")
 def update_group_sync(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
-    HTTP `PUT` route for the user group sync's switch
+    HTTP `PUT` route for the user group sync's settings, written whole
 
-    Switched on, every mapped person group takes its user group's name and synced members; switched off, the mapped
-    person groups are unlocked and kept as they are
+    Switched on, every user group without a person group gets one in the default Type, and every person group takes
+    its user group's name and synced members; switched off, the mapped person groups are unlocked and kept as they are
 
     Args:
-        data (dict[str, Any]): ``active``
+        data (dict[str, Any]): ``active`` and ``default_type_id``
         request_user (CmdbUser): The caller, credited with the sync's writes
 
     Raises:
-        HTTPException: 400 when switched on without the user sync or without a Type carrying PERSON_GROUP, or for a
-            Type the pass cannot write into; 500 when the pass failed midway
+        HTTPException: 400 when switched on without the user sync or without a default Type, for a default Type the
+            sync cannot create person groups in, or a Type the pass cannot write into; 500 when the pass failed midway
 
     Returns:
-        UpdateSingleResponse: ``active`` and ``mappings``, with ``created`` and ``edited`` counts of the pass
+        UpdateSingleResponse: ``active``, ``default_type_id`` and ``mappings``, with ``created`` and ``edited`` counts
+            of the pass and
+            ``left``: the synced persons taken out of mapped person groups
     """
-    settings, result = store_group_sync(request_user, data[PersonSyncKey.ACTIVE.value])
+    settings, result = store_group_sync(request_user, data[PersonSyncKey.ACTIVE.value],
+                                        data[PersonSyncKey.DEFAULT_TYPE_ID.value])
     view: dict[str, Any] = group_sync_view(settings, read_mappings(request_user))
 
     return UpdateSingleResponse(view, extra=pass_counts(result)).make_response()
@@ -211,19 +214,21 @@ def update_group_sync(data: dict[str, Any], request_user: CmdbUser) -> Response:
 @handle_route_errors("while mapping user group {user_group_id}")
 def update_group_mapping(user_group_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
-    HTTP `PUT` route mapping a user group to an existing person group or to one created for it
+    HTTP `PUT` route mapping a user group to an existing person group - adopted instead of the one it is mapped to
+
+    The person group the user group was mapped to (the one the sync created, say) is unlinked: kept with its name and
+    members, unlocked, its unlink logged. Adopting the person group mapped already changes nothing
 
     Args:
         user_group_id (int): The user group
-        data (dict[str, Any]): ``person_group_id`` of an existing person group, or ``type_id`` of a Type carrying
-            PERSON_GROUP to create one in - exactly one
+        data (dict[str, Any]): ``person_group_id`` of an existing person group
         request_user (CmdbUser): The caller, credited with the writes
 
     Raises:
-        HTTPException: 404 for a missing user group; 400 for a body with none or both keys, a user group mapped
-            already, an object that is missing, no person group or mapped already, a Type missing, without
-            PERSON_GROUP, deactivated or requiring a field the sync cannot fill; 403 when the caller may not READ and
-            UPDATE the person group's Type, or CREATE in the chosen Type; 500 when the sync failed (nothing kept)
+        HTTPException: 404 for a missing user group; 400 for a body without ``person_group_id``, an object that is
+            missing, no person group, deactivated or mirroring another user group, or a mapping a concurrent request
+            took first; 403 when the caller may not READ and UPDATE the person group's Type; 500 when the sync failed
+            (nothing kept)
 
     Returns:
         UpdateSingleResponse: ``{user_group_id, person_group_id}``, and ``left``: the synced persons the group sync
@@ -235,30 +240,6 @@ def update_group_mapping(user_group_id: int, data: dict[str, Any], request_user:
                                  GroupMappingKey.PERSON_GROUP_ID.value: person_group_id},
                                 extra={PersonSyncAnswerKey.LEFT.value: left_members_view(result)}).make_response()
 
-
-@person_sync_blueprint.route('/groups/<int:user_group_id>', methods=['DELETE'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
-@person_sync_blueprint.protect(auth=True, right=PERSON_SYNC_EDIT_RIGHT)
-@handle_route_errors("while unmapping user group {user_group_id}")
-def delete_group_mapping(user_group_id: int, request_user: CmdbUser) -> Response:
-    """
-    HTTP `DELETE` route unmapping a user group - its person group stays, its name and members kept, unlocked
-
-    Args:
-        user_group_id (int): The user group
-        request_user (CmdbUser): The caller
-
-    Raises:
-        HTTPException: 404 when the user group is mapped to no person group
-
-    Returns:
-        UpdateSingleResponse: ``{user_group_id, person_group_id}`` of the mapping removed
-    """
-    person_group_id: int = unmap_group(request_user, user_group_id)
-
-    return UpdateSingleResponse({GroupMappingKey.USER_GROUP_ID.value: user_group_id,
-                                 GroupMappingKey.PERSON_GROUP_ID.value: person_group_id}).make_response()
 
 # ------------------------------------------------------ RESYNC ------------------------------------------------------ #
 
@@ -279,11 +260,12 @@ def post_resync(request_user: CmdbUser) -> Response:
             failed midway (running it again finishes it)
 
     Returns:
-        UpdateSingleResponse: ``created`` and ``edited`` counts
+        UpdateSingleResponse: The user sync settings the pass ran on, with ``created`` / ``edited`` counts of
+            everything written and ``left``: the synced persons taken out of mapped person groups
     """
-    result: SyncResult = resync(request_user)
+    settings, result = resync(request_user)
 
-    return UpdateSingleResponse(pass_counts(result)).make_response()
+    return UpdateSingleResponse(user_sync_view(settings), extra=pass_counts(result)).make_response()
 
 # -------------------------------------------------- USER -> PERSON -------------------------------------------------- #
 

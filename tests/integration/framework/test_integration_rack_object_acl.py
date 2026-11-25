@@ -39,6 +39,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import resolve_mounted_object_meta
 
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HIDDEN_TYPE_ID: int = 89901
@@ -58,7 +59,10 @@ def _object(public_id: int, type_id: int, name: str) -> dict[str, Any]:
 
 @pytest.fixture(name='seeded')
 def fixture_seeded(rest_api, database_manager: MongoDatabaseManager, database_name: str):
-    """A type only the administrators may read, an open one, one object each; a group of neither"""
+    """
+    A type only the administrators may read (also as the access rules its ACL translates to), an open one, one object
+    each; a group of neither
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
     groups = database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name)
@@ -78,10 +82,13 @@ def fixture_seeded(rest_api, database_manager: MongoDatabaseManager, database_na
         _object(HIDDEN_OBJECT_ID, HIDDEN_TYPE_ID, 'secret'), _object(SHOWN_OBJECT_ID, SHOWN_TYPE_ID, 'public'),
     ])
     groups.insert_one({'public_id': GROUP_ID, 'name': 'rack-acl-int', 'label': 'Rack ACL', 'rights': []})
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [HIDDEN_TYPE_ID, SHOWN_TYPE_ID])
 
     with rest_api.application.test_request_context():
         yield ObjectsManager(database_manager), TypesManager(database_manager)
 
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

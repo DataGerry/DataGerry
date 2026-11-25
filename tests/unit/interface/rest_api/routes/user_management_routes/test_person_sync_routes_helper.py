@@ -49,6 +49,7 @@ from cmdb.errors.person_sync import PersonSyncTargetError
 MODULE: str = 'cmdb.interface.rest_api.routes.user_management_routes.person_sync_routes_helper'
 TYPE_ID: int = 7
 OTHER_TYPE_ID: int = 8
+GROUP_TYPE_ID: int = 9
 USER_ID: int = 5
 OTHER_USER_ID: int = 6
 PROBLEM: str = 'Type 7 is deactivated'
@@ -56,7 +57,7 @@ CALLER: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True)
 ON_BODY: dict[str, Any] = {'active': True, 'default_type_id': TYPE_ID, 'on_blocked': 'cancel',
                            'type_overrides': [{'user_id': USER_ID, 'type_id': OTHER_TYPE_ID}]}
 BOTH_ON: PersonSyncSettings = PersonSyncSettings(users=UserSyncSettings(active=True, default_type_id=TYPE_ID),
-                                                 groups=GroupSyncSettings(active=True))
+                                                 groups=GroupSyncSettings(active=True, default_type_id=GROUP_TYPE_ID))
 
 
 def _context(settings: PersonSyncSettings) -> SyncContext:
@@ -89,7 +90,8 @@ class TestBodyAndViews:
         mappings: list[dict[str, int]] = [{'user_group_id': 3, 'person_group_id': 4}]
 
         assert user_sync_view(BOTH_ON) == {'active': True, 'default_type_id': TYPE_ID, 'type_overrides': []}
-        assert group_sync_view(BOTH_ON, mappings) == {'active': True, 'mappings': mappings}
+        assert group_sync_view(BOTH_ON, mappings) == {'active': True, 'default_type_id': GROUP_TYPE_ID,
+                                                      'mappings': mappings}
 
     def test_the_counts(self) -> None:
         """Created and edited counted; who left a mapped group named, in group order"""
@@ -199,21 +201,22 @@ class TestStoreGroupSync:
     """PUT /person_sync/groups."""
 
     def test_switching_on_runs_the_pass(self, wired: Any) -> None:
-        """Then stores"""
+        """Then stores - the switch and the default together"""
         order, _ = wired
 
-        settings, _ = store_group_sync(CALLER, True)
+        settings, _ = store_group_sync(CALLER, True, OTHER_TYPE_ID)
 
-        assert settings.groups.active is True
+        assert (settings.groups.active, settings.groups.default_type_id) == (True, OTHER_TYPE_ID)
         assert [name for name, _, _ in order.mock_calls] == ['run_sync_pass', 'write_sync_settings']
 
     def test_switching_off_only_stores(self, wired: Any) -> None:
         """The groups are unlocked, kept as they are"""
         order, _ = wired
 
-        settings, result = store_group_sync(CALLER, False)
+        settings, result = store_group_sync(CALLER, False, GROUP_TYPE_ID)
 
-        assert (settings.users.active, settings.groups.active) == (True, False)
+        assert (settings.users.active, settings.groups.active, settings.groups.default_type_id) == (
+            True, False, GROUP_TYPE_ID)
         assert result == SyncResult()
         assert order.mock_calls == [call.write_sync_settings(order.mock_calls[0].args[0], settings)]
 
@@ -232,10 +235,13 @@ class TestResync:
         patches['run_sync_pass'].assert_not_called()
 
     def test_while_on_it_runs_the_pass_on_the_stored_settings(self, wired: Any) -> None:
-        """Nothing stored"""
+        """Nothing stored; the settings it ran on come back with the result"""
         _, patches = wired
+        stored: PersonSyncSettings = patches['person_sync_context'].return_value.settings
 
-        assert resync(CALLER).created == [9]
+        settings, result = resync(CALLER)
+
+        assert (settings, result.created) == (stored, [9])
         patches['write_sync_settings'].assert_not_called()
 
 

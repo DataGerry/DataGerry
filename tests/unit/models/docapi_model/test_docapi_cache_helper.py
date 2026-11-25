@@ -40,7 +40,7 @@ REQUEST_USER: Mock = Mock(name='request_user')
 @pytest.fixture(autouse=True)
 def _nothing_denied(monkeypatch: pytest.MonkeyPatch) -> None:
     """The caller's group may read every type unless a test says otherwise."""
-    monkeypatch.setattr(docapi_cache_helper, 'resolve_denied_type_ids', lambda _user, _permission: [])
+    monkeypatch.setattr(docapi_cache_helper, 'build_scope_criteria', lambda _user, _permission: {})
 
 
 def _managers(objects: list[dict], types: list[dict]) -> tuple[Mock, Mock]:
@@ -113,8 +113,9 @@ class TestTheCallersAcl:
     """Only objects of types the caller may READ enter the cache."""
 
     def test_the_denied_types_are_excluded_from_the_object_query(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The object query carries the caller's denied types - a hidden object never reaches the cache"""
-        monkeypatch.setattr(docapi_cache_helper, 'resolve_denied_type_ids', lambda _user, _permission: [DENIED_TYPE])
+        """The object query carries the caller's object filter - a hidden object never reaches the cache"""
+        monkeypatch.setattr(docapi_cache_helper, 'build_scope_criteria',
+                            lambda _user, _permission: {TYPE_ID: {'$nin': [DENIED_TYPE]}})
         objects_manager, types_manager = _managers([], [])
 
         cache_objects_and_types([2], {}, {}, objects_manager, types_manager, REQUEST_USER)
@@ -133,8 +134,8 @@ class TestTheCallersAcl:
     def test_the_denied_types_are_resolved_for_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A document only reads, so READ is the permission asked"""
         asked: list = []
-        monkeypatch.setattr(docapi_cache_helper, 'resolve_denied_type_ids',
-                            lambda user, permission: asked.append((user, permission)) or [])
+        monkeypatch.setattr(docapi_cache_helper, 'build_scope_criteria',
+                            lambda user, permission: asked.append((user, permission)) or {})
         objects_manager, types_manager = _managers([], [])
 
         cache_objects_and_types([2], {}, {}, objects_manager, types_manager, REQUEST_USER)
@@ -144,8 +145,8 @@ class TestTheCallersAcl:
     def test_a_warm_cache_resolves_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Nothing missing, nothing asked - not even the denied types"""
         asked: list = []
-        monkeypatch.setattr(docapi_cache_helper, 'resolve_denied_type_ids',
-                            lambda user, permission: asked.append(user) or [])
+        monkeypatch.setattr(docapi_cache_helper, 'build_scope_criteria',
+                            lambda user, permission: asked.append(user) or {})
         objects_manager, types_manager = _managers([], [])
 
         cache_objects_and_types([2], {2: {PUBLIC_ID: 2}}, {}, objects_manager, types_manager, REQUEST_USER)

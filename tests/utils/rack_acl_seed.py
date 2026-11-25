@@ -22,7 +22,8 @@ The seed of the rack membership ACL tests: racks and members under every rule th
   (an inactive type) - every one of a type with a location field, so only the ACL can refuse it
 * EDITOR - a group holding the rack rights and the object view right, and nothing an ACL does not grant it
 
-Everything is written straight into the collections and removed by id
+Everything is written straight into the collections - with the access rules the type ACLs translate to - and removed
+by id
 """
 from datetime import datetime, timezone
 from functools import partial
@@ -40,6 +41,7 @@ from cmdb.models.special_type_model.rack_constants import RackField, RackSection
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
+from tests.utils.type_access_seed import remove_type_access_of_types, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RACK_TYPE_ID: int = 98701
@@ -138,6 +140,7 @@ def seed(database_manager: MongoDatabaseManager, database_name: str) -> None:
         _member_type(HIDDEN_TYPE_ID, HIDDEN_ACL), _member_type(READ_ONLY_TYPE_ID, READ_ONLY_ACL),
         _member_type(DEACTIVATED_TYPE_ID, OPEN_ACL, active=False),
     ])
+    store_type_access(database_manager.connector.client[database_name], ALL_TYPE_IDS)
     collection(CmdbObject.COLLECTION).insert_many([
         _rack(RACK_ID, RACK_TYPE_ID), _rack(OTHER_RACK_ID, RACK_TYPE_ID),
         _rack(READ_ONLY_RACK_ID, READ_ONLY_RACK_TYPE_ID), _rack(HIDDEN_RACK_ID, HIDDEN_RACK_TYPE_ID),
@@ -157,6 +160,7 @@ def seed(database_manager: MongoDatabaseManager, database_name: str) -> None:
 def purge(database_manager: MongoDatabaseManager, database_name: str) -> None:
     """Removes everything seed wrote, and every mount and location node of its objects"""
     collection = partial(database_manager.get_collection, db_name=database_name)
+    remove_type_access_of_types(database_manager.connector.client[database_name], ALL_TYPE_IDS)
     collection(CmdbType.COLLECTION).delete_many({'public_id': {'$in': ALL_TYPE_IDS}})
     collection(CmdbObject.COLLECTION).delete_many({'public_id': {'$in': ALL_OBJECT_IDS}})
     collection(CmdbRackMount.COLLECTION).delete_many({'rack_id': {'$in': ALL_RACK_IDS}})
