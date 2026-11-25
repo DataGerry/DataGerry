@@ -1,7 +1,7 @@
 <div *permissionLink="'base.isms.riskClass.view'">
   <div class="d-flex justify-content-between align-items-center mb-2 mt-2 mb-2">
     <h1>Risk Classes</h1>
-    <app-button variant="soft" tone="brand" size="sm" label="Add" icon="fas fa-plus"
+    <app-button variant="solid" tone="brand" size="sm" label="Add" icon="fas fa-plus"
       (clicked)="addRiskClass()" [disabled]="this.totalRiskClasses >= 10"
       *permissionLink="'base.isms.riskClass.add'">
     </app-button>
