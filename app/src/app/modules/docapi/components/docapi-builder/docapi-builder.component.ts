@@ -17,6 +17,7 @@
 */
 import { Component, inject, AfterViewInit, EventEmitter, Input, OnDestroy, Output, ViewChild, signal } from '@angular/core';
 import { HttpResponse } from '@angular/common/http';
+import { Location } from '@angular/common';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { WizardComponent } from '@rg-software/angular-archwizard';
@@ -54,10 +55,12 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     private readonly modalService = inject(NgbModal);
     private readonly exportDownloadService = inject(ExportDownloadService);
     private readonly loaderService = inject(LoaderService);
+    private readonly location = inject(Location);
 
     @Input() public mode: number = CmdbMode.Create;
     @Input() public docInstance?: DocTemplate;
     @Output() public labelChanged = new EventEmitter<string>();
+    @Output() public templateCreated = new EventEmitter<number>();
     @ViewChild('wizard', { static: false })
     public wizard: WizardComponent;
 
@@ -435,6 +438,9 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
             this.docInstance.public_id = createdTemplateId;
             this.mode = CmdbMode.Edit;
+            this.settingsStep?.lockName();
+            this.location.replaceState(`/docapi/edit/${createdTemplateId}`);
+            this.templateCreated.emit(createdTemplateId);
             this.toast.success('Template saved successfully.');
             return createdTemplateId;
         }

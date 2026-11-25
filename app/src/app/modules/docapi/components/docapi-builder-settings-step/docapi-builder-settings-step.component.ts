@@ -17,6 +17,7 @@
 */
 import { Component, OnInit, Input } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
+import { Subscription } from 'rxjs';
 
 import { DocapiService, checkDocTemplateExistsValidator } from '../../services/docapi.service';
 
@@ -40,6 +41,7 @@ export class DocapiBuilderSettingsStepComponent implements OnInit {
     @Input() public mode: CmdbMode;
     public modes = CmdbMode;
     public settingsForm: UntypedFormGroup;
+    private labelSubscription?: Subscription;
 
 /* -------------------------------------------------- GETTER/SETTER ------------------------------------------------- */
 
@@ -70,7 +72,7 @@ export class DocapiBuilderSettingsStepComponent implements OnInit {
         if (this.mode === CmdbMode.Create) {
             this.settingsForm?.get('name')?.setAsyncValidators(checkDocTemplateExistsValidator(this.docapiService));
 
-            this.settingsForm?.get('label')?.valueChanges?.subscribe(value => {
+            this.labelSubscription = this.settingsForm?.get('label')?.valueChanges?.subscribe(value => {
                 this.settingsForm?.get('name')?.setValue(value?.replace(/ /g, '-')?.toLowerCase());
                 const newValue = this.settingsForm?.get('name')?.value;
                 this.settingsForm?.get('name')?.setValue(newValue?.replace(/[^a-z0-9 \-]/gi, '')?.toLowerCase());
@@ -80,5 +82,14 @@ export class DocapiBuilderSettingsStepComponent implements OnInit {
         } else if (this.mode === CmdbMode.Edit) {
             this.settingsForm?.markAllAsTouched();
         }
+    }
+
+/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    /** Once the template is saved its name is fixed and no longer has to be unique against itself. */
+    public lockName(): void {
+        this.labelSubscription?.unsubscribe();
+        this.name.clearAsyncValidators();
+        this.name.updateValueAndValidity();
     }
 }
