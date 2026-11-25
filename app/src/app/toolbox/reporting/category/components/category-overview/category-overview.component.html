@@ -14,8 +14,9 @@
   </app-button>
 </div>
 
-<cmdb-table [items]="categories" [columns]="columns" [totalItems]="totalCategories" [loading]="loading" [pageSize]="10"
-  (pageChange)="onPageChange($event)" (sortChange)="onSortChange($event)"
+<cmdb-table [items]="categories" [columns]="columns" [totalItems]="totalCategories" [loading]="loading"
+  [pageSize]="limit" [page]="page" (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)"
+  (sortChange)="onSortChange($event)"
   (searchChange)="onSearchChange($event)"></cmdb-table>
 
 <ng-template #actionsTemplate let-item="item">
