@@ -486,8 +486,8 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
                 this.toast.success("Template successfully created!");
                 this.router.navigate(['/docapi/'], { queryParams: { docAddSuccess: createResp.body } });
             },
-            error: (error: any) => {
-                // console.error(error);
+            error: () => {
+                this.toast.error('Unable to save the template. Please review it and try again.');
             }
         });
     }
@@ -512,8 +512,8 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
                 this.toast.success(`Template successfully edited: ${name}`);
                 this.router.navigate(['/docapi/'], { queryParams: { docEditSuccess: publicId } });
             },
-            error: (error: any) => {
-                // console.error(error);
+            error: () => {
+                this.toast.error('Unable to save the template. Please review it and try again.');
             }
         });
     }
