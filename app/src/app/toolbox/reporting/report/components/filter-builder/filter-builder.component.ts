@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, Input, OnInit, OnChanges, SimpleChanges, EventEmitter, Output } from '@angular/core';
-import { QueryBuilderConfig, QueryBuilderClassNames } from 'shout-angular-query-builder';
+import { QueryBuilderConfig, QueryBuilderClassNames, Rule } from 'shout-angular-query-builder';
 import { operatorLabel } from './report-filter-labels';
 
 /** Own class names for every slot, so the library's default look does not apply. */
@@ -77,7 +77,10 @@ export class FilterBuilderComponent implements OnInit, OnChanges {
 
 
     public query = { condition: 'and', rules: [] };
-    public config: QueryBuilderConfig = { fields: {} };
+    public config: QueryBuilderConfig = {
+        fields: {},
+        coerceValueForOperator: (operator, value, rule) => this.coerceValueForOperator(operator, value, rule)
+    };
     public classNames: QueryBuilderClassNames = QUERY_CLASS_NAMES;
     public showQueryBuilder = true;
 
@@ -187,6 +190,33 @@ export class FilterBuilderComponent implements OnInit, OnChanges {
 
 
     /**
+     * Keeps the value shape in line with the operator: a list for "is any of" / "is none of", one value otherwise.
+     * A list of several values cannot become one value, so it is cleared.
+     */
+    private coerceValueForOperator(operator: string, value: unknown, rule: Rule): unknown {
+        const takesList = this.takesList(operator, rule.field);
+
+        if (takesList && !Array.isArray(value)) {
+            return value === '' || value === null || value === undefined ? [] : [value];
+        }
+
+        if (!takesList && Array.isArray(value)) {
+            return value.length === 1 ? value[0] : '';
+        }
+
+        return value;
+    }
+
+
+    /** Mirrors the library, which only shows a multi-select for these field types. */
+    private takesList(operator: string, fieldName: string): boolean {
+        const fieldType = this.config.fields[fieldName]?.type;
+
+        return (operator === 'in' || operator === 'not in') && (fieldType === 'category' || fieldType === 'boolean');
+    }
+
+
+    /**
      * Emits an updated query when conditions change.
      */
     onQueryChange(): void {
@@ -242,7 +272,8 @@ export class FilterBuilderComponent implements OnInit, OnChanges {
                         rule.value === '' ||
                         rule.value === undefined ||
                         rule.value === null ||
-                        (Array.isArray(rule.value) && rule.value.length === 0)
+                        (Array.isArray(rule.value) && rule.value.length === 0) ||
+                        (Array.isArray(rule.value) && !this.takesList(rule.operator, rule.field))
                     )
                 ) {
                     // If the value is empty and the operator is not null checks, return true
