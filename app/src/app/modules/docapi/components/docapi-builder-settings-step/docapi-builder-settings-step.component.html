@@ -43,9 +43,9 @@
                             Name is required
                         </div>
                         }
-                        @if (name.errors.nameAlreadyTaken) {
+                        @if (name.errors.docTemplateExists) {
                         <div class="text-end">
-                            A type with this name already exists
+                            A template with this name already exists
                         </div>
                         }
                     </div>
