@@ -59,7 +59,7 @@
                             @let isActive = createReportForm.get('mds_mode').value === option.value;
                             <app-button size="sm" [label]="option.label" [variant]="isActive ? 'soft' : 'outline'"
                                 [tone]="isActive ? 'brand' : 'neutral'" [ariaPressed]="isActive"
-                                (clicked)="createReportForm.get('mds_mode').setValue(option.value)">
+                                (clicked)="selectMdsMode(option.value)">
                             </app-button>
                             }
                         </div>

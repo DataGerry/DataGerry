@@ -18,8 +18,10 @@
 import { Component, inject, OnInit, OnDestroy } from '@angular/core';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { TypeService } from 'src/app/framework/services/type.service';
-import { Observable, ReplaySubject, forkJoin, throwError } from 'rxjs';
-import { catchError, finalize, takeUntil, tap } from 'rxjs/operators';
+import { Observable, ReplaySubject, forkJoin, from, of, throwError } from 'rxjs';
+import { catchError, finalize, map, takeUntil, tap } from 'rxjs/operators';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { CoreConfirmationModalComponent } from 'src/app/core/components/dialog/confirmation/core-confirmation-modal.component';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -32,7 +34,10 @@ import { describeConditionParts, ReportSentencePart, sentenceText } from '../fil
     selector: 'app-create-report',
     templateUrl: './create-report.component.html',
     styleUrls: ['./create-report.component.scss'],
-    standalone: false
+    standalone: false,
+    host: {
+        '(window:beforeunload)': 'onBeforeUnload($event)'
+    }
 })
 export class CreateReportComponent implements OnInit, OnDestroy {
     private readonly fb = inject(FormBuilder);
@@ -44,6 +49,7 @@ export class CreateReportComponent implements OnInit, OnDestroy {
     private readonly route = inject(ActivatedRoute);
     private readonly loaderService = inject(LoaderService);
     private readonly copyService = inject(CopyService);
+    private readonly modalService = inject(NgbModal);
 
     public createReportForm: FormGroup;
     public categories = [];
@@ -58,6 +64,11 @@ export class CreateReportComponent implements OnInit, OnDestroy {
     public isEditMode = false;
     public reportId: number;
     public filterBuilderReady = false;
+    /** The type the fields and filter currently belong to. */
+    private activeTypeId: number | null = null;
+    private savedTypeId: number | null = null;
+    /** Conditions as last loaded or saved; the query builder emits on load, so changes are compared, not counted. */
+    private savedConditions = '';
 
     public mdsModeOptions = [
         { label: 'One row per value', value: 'ROWS' },
@@ -90,6 +101,10 @@ export class CreateReportComponent implements OnInit, OnDestroy {
         const typeLabel = this.types.find((item) => item.public_id === this.createReportForm?.value?.type)?.label;
 
         return describeConditionParts(this.conditions, this.filterFields, typeLabel);
+    }
+
+    public get hasUnsavedChanges(): boolean {
+        return !!this.createReportForm?.dirty || this.serializeConditions(this.conditions) !== this.savedConditions;
     }
 
     /** Why the save button is disabled, shown next to it. */
@@ -134,17 +149,7 @@ export class CreateReportComponent implements OnInit, OnDestroy {
             // Subscribe to type change and load corresponding fields
             this.createReportForm.get('type').valueChanges
                 .pipe(takeUntil(this.unsubscribe$))
-                .subscribe((typeId) => {
-                    this.loadFieldsForType(typeId);
-                    // Clear selected fields when the type changes
-                    this.createReportForm.get('fields').setValue([]);
-                    this.conditions = {
-                        condition: 'and',
-                        rules: []
-                    };
-                    this.filterBuilderReady = false; // Reset filter builder to re-render with new fields
-                    setTimeout(() => (this.filterBuilderReady = true), 0);
-                });
+                .subscribe((typeId) => this.onTypeChange(typeId));
         });
     }
 
@@ -240,7 +245,9 @@ export class CreateReportComponent implements OnInit, OnDestroy {
         this.loaderService.show();
         this.reportService.getReportById(id).pipe(takeUntil(this.unsubscribe$), finalize(() => this.loaderService.hide()))
         .subscribe({
-            next: (report) => {        
+            next: (report) => {
+                this.activeTypeId = report.type_id;
+                this.savedTypeId = report.type_id;
                 this.createReportForm.patchValue({
                     name: report.name,
                     category: report.report_category_id,
@@ -260,6 +267,7 @@ export class CreateReportComponent implements OnInit, OnDestroy {
 
                 // Set conditions and make filter builder ready
                 this.conditions = report.conditions;
+                this.savedConditions = this.serializeConditions(report.conditions);
                 this.filterBuilderReady = true; // Ensure FilterBuilderComponent renders with conditions
             },
             error: (error) => {
@@ -277,6 +285,35 @@ export class CreateReportComponent implements OnInit, OnDestroy {
     onConditionsChange(conditions: any): void {
         // Receive conditions from FilterBuilderComponent
         this.conditions = conditions;
+    }
+
+
+    onBeforeUnload(event: BeforeUnloadEvent): void {
+        if (this.hasUnsavedChanges) {
+            event.preventDefault();
+        }
+    }
+
+
+    selectMdsMode(mode: string): void {
+        const control = this.createReportForm.get('mds_mode');
+
+        if (control.value !== mode) {
+            control.setValue(mode);
+            control.markAsDirty();
+        }
+    }
+
+
+    /**
+     * Asks before leaving the page with unsaved changes. Used by the route's deactivate guard.
+     */
+    confirmLeave(): Observable<boolean> | boolean {
+        if (!this.hasUnsavedChanges) {
+            return true;
+        }
+
+        return this.confirm('Leave without saving?', 'Your changes to this report have not been saved.', 'Leave');
     }
 
     /**
@@ -310,6 +347,7 @@ export class CreateReportComponent implements OnInit, OnDestroy {
                 this.reportService.updateReport(this.reportId, reportData).pipe(finalize(() => this.loaderService.hide())).subscribe({
                     next: () => {
                         this.toast.success('Report updated successfully');
+                        this.markAsSaved();
                         this.router.navigate(['/reports/overview']);
                     },
                     error: (error) => {
@@ -322,6 +360,7 @@ export class CreateReportComponent implements OnInit, OnDestroy {
                 this.reportService.createReport(reportData).pipe(finalize(() => this.loaderService.hide())).subscribe({
                     next: (response) => {
                         this.toast.success('Report created successfully');
+                        this.markAsSaved();
                         this.router.navigate(['/reports/overview']);
                     },
                     error: (error) => {
@@ -341,6 +380,83 @@ export class CreateReportComponent implements OnInit, OnDestroy {
     }
 
     /* --------------------------------------------------- HELPER METHODS -------------------------------------------------- */
+
+    /**
+     * Applies a newly picked type. Asks first when the chosen fields or filter rules would be lost,
+     * and restores the previous type when the user cancels.
+     */
+    private onTypeChange(typeId: number): void {
+        if (typeId === this.activeTypeId) {
+            return;
+        }
+
+        const hasWorkToLose = (this.createReportForm.get('fields').value?.length ?? 0) > 0 || this.countRules(this.conditions) > 0;
+
+        if (!hasWorkToLose) {
+            this.applyType(typeId);
+            return;
+        }
+
+        this.confirm(
+            'Change type?',
+            'The selected fields and filter rules belong to the current type and will be removed.',
+            'Change type'
+        ).subscribe((confirmed) => {
+            if (confirmed) {
+                this.applyType(typeId);
+            } else {
+                const typeControl = this.createReportForm.get('type');
+                typeControl.setValue(this.activeTypeId, { emitEvent: false });
+
+                if (this.activeTypeId === this.savedTypeId) {
+                    typeControl.markAsPristine();
+                }
+            }
+        });
+    }
+
+
+    private applyType(typeId: number): void {
+        this.activeTypeId = typeId;
+        this.loadFieldsForType(typeId);
+        // Clear selected fields when the type changes
+        this.createReportForm.get('fields').setValue([]);
+        this.conditions = {
+            condition: 'and',
+            rules: []
+        };
+        this.filterBuilderReady = false; // Reset filter builder to re-render with new fields
+        setTimeout(() => (this.filterBuilderReady = true), 0);
+    }
+
+
+    /** Resolves true when confirmed, false when cancelled or dismissed. */
+    private confirm(title: string, message: string, confirmButtonText: string): Observable<boolean> {
+        const modalRef = this.modalService.open(CoreConfirmationModalComponent, {
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
+        Object.assign(modalRef.componentInstance, { title, message, confirmButtonText });
+
+        return from(modalRef.result).pipe(
+            map((result) => result === 'confirmed'),
+            catchError(() => of(false))
+        );
+    }
+
+
+    private markAsSaved(): void {
+        this.createReportForm.markAsPristine();
+        this.savedConditions = this.serializeConditions(this.conditions);
+        this.savedTypeId = this.activeTypeId;
+    }
+
+
+    /** A filter without rules counts as no filter, whatever its AND/OR. */
+    private serializeConditions(conditions: { rules?: unknown[] } | null | undefined): string {
+        return conditions?.rules?.length ? JSON.stringify(conditions) : '';
+    }
+
 
     /**
      * Counts the leaf rules of a condition tree, including nested rule sets.
