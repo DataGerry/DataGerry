@@ -89,7 +89,7 @@ export class CreateReportComponent implements OnInit, OnDestroy {
     public get plainWordsParts(): ReportSentencePart[] {
         const typeLabel = this.types.find((item) => item.public_id === this.createReportForm?.value?.type)?.label;
 
-        return describeConditionParts(this.conditions, this.fields, typeLabel);
+        return describeConditionParts(this.conditions, this.filterFields, typeLabel);
     }
 
     /** Why the save button is disabled, shown next to it. */
