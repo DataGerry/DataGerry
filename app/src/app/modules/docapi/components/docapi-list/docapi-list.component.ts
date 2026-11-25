@@ -151,7 +151,7 @@ export class DocapiListComponent implements OnInit, OnDestroy {
                 const regex: any = {};
                 regex[column?.name] = {
                     $regex: String(this.filter),
-                    $options: 'ismx'
+                    $options: 'ism'
                 };
                 or.push(regex);
             }
@@ -167,7 +167,7 @@ export class DocapiListComponent implements OnInit, OnDestroy {
                     $elemMatch: {
                             value: {
                                 $regex: String(this.filter),
-                                $options: 'ismx'
+                                $options: 'ism'
                             }
                     }
                 }
