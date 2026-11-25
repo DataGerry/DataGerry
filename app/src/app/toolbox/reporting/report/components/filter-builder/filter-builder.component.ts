@@ -17,6 +17,50 @@
 */
 import { Component, Input, OnInit, OnChanges, SimpleChanges, EventEmitter, Output } from '@angular/core';
 import { QueryBuilderConfig, QueryBuilderClassNames } from 'shout-angular-query-builder';
+import { operatorLabel } from './report-filter-labels';
+
+/** Own class names for every slot, so the library's default look does not apply. */
+const QUERY_CLASS_NAMES: QueryBuilderClassNames = {
+    arrowIconButton: 'qb-arrow-button',
+    arrowIcon: 'qb-arrow-icon',
+    removeIcon: 'qb-icon',
+    addIcon: 'qb-icon',
+    button: 'qb-button',
+    buttonGroup: 'qb-button-group',
+    removeButton: 'qb-remove-button',
+    removeButtonSize: 'qb-remove-button',
+    switchRow: 'qb-switch-row',
+    switchGroup: 'qb-switch-group',
+    switchLabel: 'qb-switch-label',
+    switchRadio: 'qb-switch-radio',
+    switchControl: 'qb-switch-control',
+    rightAlign: 'qb-end',
+    transition: 'qb-transition',
+    collapsed: 'qb-collapsed',
+    treeContainer: 'qb-tree-container',
+    tree: 'qb-tree',
+    row: 'qb-row',
+    connector: 'qb-connector',
+    rule: 'qb-rule',
+    ruleSet: 'qb-ruleset',
+    invalidRuleSet: 'qb-ruleset--invalid',
+    emptyWarning: 'qb-empty-warning',
+    fieldControl: 'qb-control',
+    fieldControlSize: 'qb-control-size',
+    entityControl: 'qb-control',
+    entityControlSize: 'qb-control-size',
+    operatorControl: 'qb-control',
+    operatorControlSize: 'qb-control-size',
+    inputControl: 'qb-control',
+    inputControlSize: 'qb-control-size'
+};
+
+const FIELD_TYPE_ICONS: Record<string, string> = {
+    number: 'fas fa-hashtag',
+    date: 'far fa-calendar',
+    category: 'fas fa-list-ul',
+    boolean: 'far fa-check-square'
+};
 
 @Component({
     selector: 'app-filter-builder',
@@ -34,7 +78,7 @@ export class FilterBuilderComponent implements OnInit, OnChanges {
 
     public query = { condition: 'and', rules: [] };
     public config: QueryBuilderConfig = { fields: {} };
-    public classNames: QueryBuilderClassNames = {};
+    public classNames: QueryBuilderClassNames = QUERY_CLASS_NAMES;
     public showQueryBuilder = true;
 
     /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
@@ -152,6 +196,23 @@ export class FilterBuilderComponent implements OnInit, OnChanges {
 
 
     /* --------------------------------------------------- TEMPLATE HELPER -------------------------------------------------- */
+
+
+    operatorLabel(operator: string, fieldName: string): string {
+        const fieldType = this.config.fields[fieldName]?.type;
+
+        return operatorLabel(operator, fieldType);
+    }
+
+
+    fieldTypeIcon(fieldType: string | undefined): string {
+        return FIELD_TYPE_ICONS[fieldType] ?? 'fas fa-font';
+    }
+
+
+    valueLabel(rule: { field: string }): string {
+        return `Value for ${ this.config.fields[rule.field]?.name ?? 'this rule' }`;
+    }
 
 
     /**

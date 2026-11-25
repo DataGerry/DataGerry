@@ -25,6 +25,8 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ReportCategoryService } from '../../../services/report-category.service';
 import { ReportService } from '../../../services/report.service';
+import { CopyService } from 'src/app/core/services/copy.service';
+import { describeConditionParts, ReportSentencePart, sentenceText } from '../filter-builder/report-filter-labels';
 
 @Component({
     selector: 'app-create-report',
@@ -41,6 +43,7 @@ export class CreateReportComponent implements OnInit, OnDestroy {
     private readonly router = inject(Router);
     private readonly route = inject(ActivatedRoute);
     private readonly loaderService = inject(LoaderService);
+    private readonly copyService = inject(CopyService);
 
     public createReportForm: FormGroup;
     public categories = [];
@@ -55,8 +58,8 @@ export class CreateReportComponent implements OnInit, OnDestroy {
     public filterBuilderReady = false;
 
     public mdsModeOptions = [
-        { label: 'inside the rows', value: 'ROWS' },
-        { label: 'inside the columns', value: 'COLUMNS' }
+        { label: 'One row per value', value: 'ROWS' },
+        { label: 'One column per value', value: 'COLUMNS' }
     ];
 
     public isLoading$ = this.loaderService.isLoading$;
@@ -64,6 +67,36 @@ export class CreateReportComponent implements OnInit, OnDestroy {
     /** Right required to persist the report in the current mode */
     public get saveRight(): string {
         return this.isEditMode ? 'base.framework.report.edit' : 'base.framework.report.add';
+    }
+
+
+    /** Read-only overview shown beside the form. */
+    public get summary(): Array<{ label: string; value: string }> {
+        const { category, type, fields, mds_mode } = this.createReportForm?.value ?? {};
+
+        return [
+            { label: 'Category', value: this.categories.find((item) => item.public_id === category)?.name || '—' },
+            { label: 'Object type', value: this.types.find((item) => item.public_id === type)?.label || '—' },
+            { label: 'Fields', value: String(fields?.length ?? 0) },
+            { label: 'Filter rules', value: String(this.countRules(this.conditions)) },
+            { label: 'Multi-value', value: this.mdsModeOptions.find((item) => item.value === mds_mode)?.label || '—' }
+        ];
+    }
+
+    /** The filter read as a highlighted sentence. */
+    public get plainWordsParts(): ReportSentencePart[] {
+        const typeLabel = this.types.find((item) => item.public_id === this.createReportForm?.value?.type)?.label;
+
+        return describeConditionParts(this.conditions, this.fields, typeLabel);
+    }
+
+    /** Why the save button is disabled, shown next to it. */
+    public get saveBlockedReason(): string {
+        if (this.createReportForm?.invalid) {
+            return 'Fill in the required fields';
+        }
+
+        return this.filterBuilderValidation ? '' : 'Every filter rule needs a value and no rule set may be empty';
     }
 
 
@@ -296,7 +329,23 @@ export class CreateReportComponent implements OnInit, OnDestroy {
         }
     }
 
+    public copyPlainWords(): void {
+        this.copyService.copyWithFeedback(sentenceText(this.plainWordsParts), 'report description');
+    }
+
     goBack(): void {
         this.router.navigate(['/reports/overview'])
+    }
+
+    /* --------------------------------------------------- HELPER METHODS -------------------------------------------------- */
+
+    /**
+     * Counts the leaf rules of a condition tree, including nested rule sets.
+     */
+    private countRules(ruleSet: { rules?: any[] } | null | undefined): number {
+        return (ruleSet?.rules ?? []).reduce(
+            (total, rule) => total + (Array.isArray(rule?.rules) ? this.countRules(rule) : 1),
+            0
+        );
     }
 }

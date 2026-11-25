@@ -1,17 +1,128 @@
 @if (fields && fields.length > 0 && showQueryBuilder) {
-<div>
-    <h5>
-        <span class="bold-text">Fields Filter</span> <span class="required">*</span>:
-    </h5>
+<div class="filter-builder">
     <query-builder [(ngModel)]="query" [config]="config" [classNames]="classNames"
         (ngModelChange)="onQueryChange($event)">
-        <ng-container *queryInput="let rule">
-            @if (!shouldHideValueField(rule.operator)) {
-            <input [(ngModel)]="rule.value" class="form-control"
-                [type]="config.fields[rule.field]?.type === 'number' ? 'number' : 'text'" />
+
+        <ng-container *querySwitchGroup="let ruleset; let onChange=onChange">
+            <div class="filter-builder__switch" role="group" aria-label="Combine the rules of this set with">
+                <app-button size="sm" label="AND" [variant]="ruleset.condition === 'and' ? 'soft' : 'outline'"
+                    [tone]="ruleset.condition === 'and' ? 'brand' : 'neutral'"
+                    [ariaPressed]="ruleset.condition === 'and'" (clicked)="onChange('and')">
+                </app-button>
+                <app-button size="sm" label="OR" [variant]="ruleset.condition === 'or' ? 'soft' : 'outline'"
+                    [tone]="ruleset.condition === 'or' ? 'brand' : 'neutral'"
+                    [ariaPressed]="ruleset.condition === 'or'" (clicked)="onChange('or')">
+                </app-button>
+            </div>
+        </ng-container>
+
+        <ng-container
+            *queryButtonGroup="let ruleset; let addRule=addRule; let addRuleSet=addRuleSet; let removeRuleSet=removeRuleSet">
+            <app-button variant="outline" tone="neutral" size="sm" label="Add rule" icon="fas fa-plus"
+                (clicked)="addRule()">
+            </app-button>
+            @if (addRuleSet) {
+            <app-button variant="outline" tone="neutral" size="sm" label="Add rule set" icon="far fa-plus-square"
+                (clicked)="addRuleSet()">
+            </app-button>
+            }
+            @if (removeRuleSet) {
+            <app-button variant="link" tone="danger" size="sm" label="Remove rule set" icon="far fa-trash-alt"
+                (clicked)="removeRuleSet()">
+            </app-button>
             }
         </ng-container>
 
+        <ng-container *queryRemoveButton="let rule; let removeRule=removeRule">
+            <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete" title="Remove rule"
+                [ariaLabel]="'Remove rule ' + (config.fields[rule.field]?.name ?? '')" (clicked)="removeRule(rule)">
+            </app-button>
+        </ng-container>
+
+        <ng-container *queryField="let rule; let ruleFields=fields; let onChange=onChange">
+            <div class="filter-builder__field">
+                <ng-select [items]="ruleFields" bindLabel="name" bindValue="value" ariaLabel="Field"
+                    placeholder="Choose a field" [clearable]="false" [(ngModel)]="rule.field"
+                    (ngModelChange)="onChange($event, rule)">
+                    <ng-template ng-label-tmp let-item="item">
+                        <ng-container *ngTemplateOutlet="fieldOption; context: { $implicit: item }"></ng-container>
+                    </ng-template>
+                    <ng-template ng-option-tmp let-item="item">
+                        <ng-container *ngTemplateOutlet="fieldOption; context: { $implicit: item }"></ng-container>
+                    </ng-template>
+                </ng-select>
+            </div>
+        </ng-container>
+
+        <ng-container *queryOperator="let rule; let operators=operators; let onChange=onChange">
+            <div class="filter-builder__operator">
+                <ng-select [items]="operators" ariaLabel="Condition" [clearable]="false" [searchable]="false"
+                    [(ngModel)]="rule.operator" (ngModelChange)="onChange(rule)">
+                    <ng-template ng-label-tmp let-item="item">
+                        <ng-container
+                            *ngTemplateOutlet="operatorOption; context: { $implicit: item, field: rule.field }"></ng-container>
+                    </ng-template>
+                    <ng-template ng-option-tmp let-item="item">
+                        <ng-container
+                            *ngTemplateOutlet="operatorOption; context: { $implicit: item, field: rule.field }"></ng-container>
+                    </ng-template>
+                </ng-select>
+            </div>
+        </ng-container>
+
+        <!-- Same bindings as the library's default inputs, plus a label and the app's input styling. -->
+        <ng-container *queryInput="let rule; let onChange=onChange; type: 'string'">
+            <input class="form-control filter-builder__value" type="text" [attr.aria-label]="valueLabel(rule)"
+                placeholder="Enter a value" [(ngModel)]="rule.value" (ngModelChange)="onChange()">
+        </ng-container>
+        <ng-container *queryInput="let rule; let onChange=onChange; type: 'number'">
+            <input class="form-control filter-builder__value" type="number" [attr.aria-label]="valueLabel(rule)"
+                placeholder="Enter a number" [(ngModel)]="rule.value" (ngModelChange)="onChange()">
+        </ng-container>
+        <ng-container *queryInput="let rule; let onChange=onChange; type: 'date'">
+            <input class="form-control filter-builder__value" type="date" [attr.aria-label]="valueLabel(rule)"
+                [(ngModel)]="rule.value" (ngModelChange)="onChange()">
+        </ng-container>
+        <ng-container *queryInput="let rule; let options=options; let onChange=onChange; type: 'category'">
+            <select class="form-select filter-builder__value" [attr.aria-label]="valueLabel(rule)"
+                [(ngModel)]="rule.value" (ngModelChange)="onChange()">
+                @for (option of options; track $index) {
+                <option [ngValue]="option.value">{{ option.name }}</option>
+                }
+            </select>
+        </ng-container>
+        <ng-container *queryInput="let rule; let options=options; let onChange=onChange; type: 'multiselect'">
+            <select class="form-select filter-builder__value" multiple [attr.aria-label]="valueLabel(rule)"
+                [(ngModel)]="rule.value" (ngModelChange)="onChange()">
+                @for (option of options; track $index) {
+                <option [ngValue]="option.value">{{ option.name }}</option>
+                }
+            </select>
+        </ng-container>
+        <ng-container *queryInput="let rule; let onChange=onChange; type: 'boolean'">
+            <label class="form-check filter-builder__check">
+                <input class="form-check-input" type="checkbox" [attr.aria-label]="valueLabel(rule)" [(ngModel)]="rule.value" (ngModelChange)="onChange()">
+                <span class="form-check-label">Checked</span>
+            </label>
+        </ng-container>
+
+        <ng-container *queryEmptyWarning="let ruleset">
+            <p class="filter-builder__warning">This rule set is empty. Add a rule or remove the set.</p>
+        </ng-container>
     </query-builder>
 </div>
 }
+
+<ng-template #fieldOption let-field>
+    <span class="filter-builder__option">
+        <i class="filter-builder__type-icon" [class]="fieldTypeIcon(field?.type)" aria-hidden="true"></i>
+        <span>{{ field?.name }}</span>
+    </span>
+</ng-template>
+
+<ng-template #operatorOption let-operator let-field="field">
+    <span class="filter-builder__option">
+        <span>{{ operatorLabel(operator, field) }}</span>
+        <span class="filter-builder__symbol" aria-hidden="true">{{ operator }}</span>
+    </span>
+</ng-template>
