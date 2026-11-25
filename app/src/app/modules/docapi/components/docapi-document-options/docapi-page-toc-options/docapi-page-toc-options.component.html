@@ -46,7 +46,7 @@
                         <div class="stepper">
                             <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-minus"
                                 ariaLabel="Decrease" (clicked)="stepValue('line-height', -0.1, pdftocGroup)"></app-button>
-                            <input id="tocLineHeightInput" type="number" class="stepper-input" min="0.6" max="4"
+                            <input id="tocLineHeightInput" type="number" class="stepper-input" [min]="limits['line-height'].min" [max]="limits['line-height'].max"
                                 step="0.1" formControlName="line-height">
                             <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-plus"
                                 ariaLabel="Increase" (clicked)="stepValue('line-height', 0.1, pdftocGroup)"></app-button>
@@ -65,6 +65,10 @@
                     <small class="field-hint">
                         Each heading level can have its own style and indent.
                     </small>
+                    @if (rangeError) {
+                    <app-warning-alert title="Invalid value:" [message]="rangeError + ' Fix it before applying.'">
+                    </app-warning-alert>
+                    }
                     @if (hiddenInvalidColorLevels) {
                     <app-warning-alert title="Invalid color:"
                         [message]="'Fix the color of ' + hiddenInvalidColorLevels + ' before applying.'">
@@ -92,7 +96,7 @@
                             <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-minus"
                                 ariaLabel="Decrease" (clicked)="stepLevelValue('font-size', -0.5)"></app-button>
                             <input [id]="'tocLevel' + selectedLevel + 'FontSize'" type="number" class="stepper-input"
-                                min="1" max="64" step="0.5" formControlName="font-size">
+                                [min]="limits['font-size'].min" [max]="limits['font-size'].max" step="0.5" formControlName="font-size">
                             <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-plus"
                                 ariaLabel="Increase" (clicked)="stepLevelValue('font-size', 0.5)"></app-button>
                         </div>
@@ -143,7 +147,7 @@
                             <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-minus"
                                 ariaLabel="Decrease" (clicked)="stepLevelValue('margin-top', -0.5)"></app-button>
                             <input [id]="'tocLevel' + selectedLevel + 'MarginTop'" type="number" class="stepper-input"
-                                min="0" max="120" step="0.5" formControlName="margin-top">
+                                [min]="limits['margin-top'].min" [max]="limits['margin-top'].max" step="0.5" formControlName="margin-top">
                             <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-plus"
                                 ariaLabel="Increase" (clicked)="stepLevelValue('margin-top', 0.5)"></app-button>
                         </div>
@@ -156,7 +160,8 @@
                             <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-minus"
                                 ariaLabel="Decrease" (clicked)="stepLevelValue('margin-bottom', -0.5)"></app-button>
                             <input [id]="'tocLevel' + selectedLevel + 'MarginBottom'" type="number"
-                                class="stepper-input" min="0" max="120" step="0.5" formControlName="margin-bottom">
+                                class="stepper-input" [min]="limits['margin-bottom'].min" [max]="limits['margin-bottom'].max" step="0.5"
+                                formControlName="margin-bottom">
                             <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-plus"
                                 ariaLabel="Increase" (clicked)="stepLevelValue('margin-bottom', 0.5)"></app-button>
                         </div>
