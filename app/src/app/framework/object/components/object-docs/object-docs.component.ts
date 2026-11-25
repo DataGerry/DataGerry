@@ -19,11 +19,13 @@ import { Component, inject, OnChanges, Input, SimpleChanges } from '@angular/cor
 import { MatDialog } from '@angular/material/dialog';
 
 import { Observable } from 'rxjs';
-import { take } from 'rxjs/operators';
+import { finalize, take } from 'rxjs/operators';
 
 import { DocapiService } from '../../../../modules/docapi/services/docapi.service';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { ExportDownloadService } from 'src/app/core/services/export-download.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 
 import { RenderResult } from '../../../models/cmdb-render';
 import { DocTemplate } from '../../../../modules/docapi/models/cmdb-doctemplate';
@@ -46,6 +48,8 @@ export class ObjectDocsComponent implements OnChanges {
     private readonly exportDownloadService = inject(ExportDownloadService);
     private readonly dialog = inject(MatDialog);
     private readonly premiumFeatureService = inject(PremiumFeatureService);
+    private readonly loaderService = inject(LoaderService);
+    private readonly toast = inject(ToastService);
 
     /** Drives the "Pro" upsell state shown when the Document Generator is not covered by the license. */
     readonly documentGeneratorAvailable$: Observable<boolean> =
@@ -63,10 +67,21 @@ export class ObjectDocsComponent implements OnChanges {
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
 
+    /** The object view's shared loading popup covers this request. */
     public downloadDocument(templateId: number, objectId: number): void {
-        this.docapiService.getRenderedObjectDoc(templateId, objectId).subscribe(response => {
-            this.exportDownloadService.save(response, { kind: ExportKind.Document, extension: 'pdf' });
-        });
+        this.loaderService.show();
+
+        this.docapiService.getRenderedObjectDoc(templateId, objectId)
+            .pipe(finalize(() => this.loaderService.hide()))
+            .subscribe({
+                next: response => {
+                    this.exportDownloadService.save(response, { kind: ExportKind.Document, extension: 'pdf' });
+                },
+                error: () => {
+                    this.toast.error('Unable to generate the document. Please try again later.');
+                    this.loadDocuments(this.renderResult.type_information.type_id);
+                }
+            });
     }
 
 
