@@ -18,6 +18,8 @@
 import { Component, Input } from '@angular/core';
 import { UntypedFormGroup } from '@angular/forms';
 
+import { A4_PAGE_HEIGHT_MM, A4_PAGE_WIDTH_MM } from '../../../utils/page-margins.util';
+
 @Component({
     selector: 'cmdb-docapi-page-margins-options',
     templateUrl: './docapi-page-margins-options.component.html',
@@ -28,19 +30,19 @@ export class DocapiPageMarginsOptionsComponent {
     @Input() public marginsForm: UntypedFormGroup;
 
     public get previewTopPercent(): number {
-        return this.convertMarginToPercent(this.marginsForm?.get('top')?.value, 297);
+        return this.convertMarginToPercent(this.marginsForm?.get('top')?.value, A4_PAGE_HEIGHT_MM);
     }
 
     public get previewBottomPercent(): number {
-        return this.convertMarginToPercent(this.marginsForm?.get('bottom')?.value, 297);
+        return this.convertMarginToPercent(this.marginsForm?.get('bottom')?.value, A4_PAGE_HEIGHT_MM);
     }
 
     public get previewLeftPercent(): number {
-        return this.convertMarginToPercent(this.marginsForm?.get('left')?.value, 210);
+        return this.convertMarginToPercent(this.marginsForm?.get('left')?.value, A4_PAGE_WIDTH_MM);
     }
 
     public get previewRightPercent(): number {
-        return this.convertMarginToPercent(this.marginsForm?.get('right')?.value, 210);
+        return this.convertMarginToPercent(this.marginsForm?.get('right')?.value, A4_PAGE_WIDTH_MM);
     }
 
     private convertMarginToPercent(value: unknown, pageSizeMm: number): number {
