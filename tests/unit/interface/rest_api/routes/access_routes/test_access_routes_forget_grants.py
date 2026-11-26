@@ -26,7 +26,8 @@ import pytest
 from flask import Flask
 
 from cmdb.framework.access_engine import GRANTS_CACHE_KEY
-from cmdb.models.access_model import CmdbFieldClass
+from cmdb.models.access_model import CmdbFieldClass, HistoryKind
+from cmdb.interface.rest_api.routes.access_routes.access_history_helper import ChangeContext
 from cmdb.utils import request_cache
 from cmdb.interface.rest_api.routes.access_routes import access_routes_helper
 from cmdb.interface.rest_api.routes.access_routes.access_routes_helper import (
@@ -53,15 +54,20 @@ def _manager() -> MagicMock:
 def test_a_write_drops_the_kept_grants(write: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Kept before, gone after"""
     monkeypatch.setattr(access_routes_helper, 'update_item_from_payload', lambda *_args: dict(STORED))
+    # No history read or written - only the dropped grants are under test
+    monkeypatch.setattr(access_routes_helper, 'concerned_groups', lambda *_args: set())
+    monkeypatch.setattr(access_routes_helper, 'record_change', lambda *_args: None)
+    change: ChangeContext = ChangeContext(MagicMock(), HistoryKind.FIELD_CLASS)
 
     with Flask(__name__).test_request_context('/'):
         request_cache(GRANTS_CACHE_KEY)[KEPT_KEY] = object()
 
         if write == 'create':
-            create_response(_manager(), CmdbFieldClass, {k: v for k, v in STORED.items() if k != 'public_id'}, 'x')
+            create_response(_manager(), CmdbFieldClass, {k: v for k, v in STORED.items() if k != 'public_id'}, 'x',
+                            change)
         elif write == 'update':
-            update_response(_manager(), CmdbFieldClass, STORED['public_id'], dict(STORED), 'x')
+            update_response(_manager(), CmdbFieldClass, STORED['public_id'], dict(STORED), 'x', change, dict(STORED))
         else:
-            delete_response(_manager(), dict(STORED))
+            delete_response(_manager(), dict(STORED), change)
 
         assert not request_cache(GRANTS_CACHE_KEY)

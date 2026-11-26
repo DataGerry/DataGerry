@@ -697,6 +697,7 @@ def _log_imported_objects(
             ObjectLogComment.IMPORTED.value,
             render_result,
             changes=message.changes,
+            rule_changes=message.rule_changes,
         ))
 
     for action, action_entries in entries.items():

@@ -51,6 +51,7 @@ class GrantEntry:
         operations (frozenset[ScopeOperation]): The operations the role lists
         write_regular_fields (bool): Whether the role may write the fields carrying no field class
         scope (tuple[dict[str, Any], ...] | None): The assignment's condition list; None for the unconditional scope
+        field_classes (frozenset[str]): The field classes whose fields the role may write (phase 12)
     """
     assignment_id: int
     role_id: int
@@ -58,6 +59,7 @@ class GrantEntry:
     operations: frozenset[ScopeOperation]
     write_regular_fields: bool
     scope: tuple[dict[str, Any], ...] | None = field(default=None, hash=False, compare=False)
+    field_classes: frozenset[str] = frozenset()
 
     @property
     def conditional(self) -> bool:
@@ -128,6 +130,22 @@ class AccessGrants:
             bool: True for an unrestricted Type, else when one of the user's assignments grants the operation
         """
         return not self.is_restricted(type_id) or self.granted[operation].contains(type_id)
+
+    def writes_class(self, operation: ScopeOperation, type_id: int, field_class: str) -> bool:
+        """
+        Whether an unconditional assignment granting the operation on the Type lets its role write a field class
+
+        Args:
+            operation (ScopeOperation): The writing operation
+            type_id (int): The Type
+            field_class (str): The class
+
+        Returns:
+            bool: True when such a role lists the class
+        """
+        return any(not entry.conditional and entry.grants(operation, type_id) and field_class in entry.field_classes
+                   for entry in self.entries)
+
 
     def writes_regular_fields(self, operation: ScopeOperation, type_id: int) -> bool:
         """
@@ -258,6 +276,8 @@ def grant_entries(user_assignments: Iterable[Mapping[str, Any]],
             operations=role_operations(role),
             write_regular_fields=role.get(ScopeRoleKey.WRITE_REGULAR_FIELDS.value) is True,
             scope=None if stored_scope == UNCONDITIONAL_SCOPE else tuple(stored_scope),
+            field_classes=frozenset(name for name in role.get(ScopeRoleKey.FIELD_CLASSES.value) or []
+                                    if isinstance(name, str)),
         ))
 
     return tuple(sorted(entries, key=lambda entry: entry.assignment_id))

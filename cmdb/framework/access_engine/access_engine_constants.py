@@ -22,6 +22,7 @@ from collections.abc import Mapping
 
 from cmdb.utils import BaseStrEnum
 from cmdb.models.access_model import ScopeOperation
+from cmdb.models.right_model.right_constants import ObjectRightName
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -101,3 +102,75 @@ FIELDS_REFUSED_MESSAGE: str = "You may not write the fields {names} of objects o
 
 # The key a Type answer carries the caller's allowed operations under - what a screen shows or hides its actions by
 ALLOWED_OPERATIONS_KEY: str = 'allowed_operations'
+
+
+class FieldAccess(BaseStrEnum):
+    """What a user may do with one field of an object in an edit (phase 12, D8)"""
+    WRITE = 'write'
+    READ = 'read'
+    SYSTEM = 'system'
+
+
+class ExplainStep(BaseStrEnum):
+    """
+    What decided one operation of an explanation - the checks before the engine, then the engine's own steps
+
+    Values:
+        USER_INACTIVE: Refused - the user may not log in
+        FUNCTIONAL_RIGHT: Refused - the user's groups lack the object right of the operation
+        TYPE_INACTIVE: Refused - a write on an object of a deactivated Type
+        UNRESTRICTED / SCOPE / FIELD_CLASS: The engine's step (``AccessDecisionStep``)
+    """
+    USER_INACTIVE = 'user_inactive'
+    FUNCTIONAL_RIGHT = 'functional_right'
+    TYPE_INACTIVE = 'type_inactive'
+    UNRESTRICTED = 'unrestricted'
+    SCOPE = 'scope'
+    FIELD_CLASS = 'field_class'
+
+
+class ExplainVerdict(BaseStrEnum):
+    """
+    A user group's answer for one operation: allowed, denied, or decided by a condition naming the member (a user
+    token) - then only the explanation of a member answers
+    """
+    ALLOWED = 'allowed'
+    DENIED = 'denied'
+    DEPENDS_ON_MEMBER = 'depends_on_member'
+
+
+class ExplainKey(BaseStrEnum):
+    """The keys of an explanation"""
+    OPERATION = 'operation'
+    ALLOWED = 'allowed'
+    VERDICT = 'verdict'
+    STEP = 'step'
+    RIGHT = 'right'
+    ASSIGNMENT_IDS = 'assignment_ids'
+    REFUSED_FIELDS = 'refused_fields'
+    ASSIGNMENT_ID = 'assignment_id'
+    GROUP_ID = 'group_id'
+    ROLE_ID = 'role_id'
+    OPERATIONS = 'operations'
+    UNCONDITIONAL = 'unconditional'
+    CONDITIONS = 'conditions'
+    CONDITION = 'condition'
+    MET = 'met'
+    MATCHED = 'matched'
+    GRANTS_HERE = 'grants_here'
+    NAME = 'name'
+    ACCESS = 'access'
+    SET_BY = 'set_by'
+    RULE_ID = 'rule_id'
+    RULE_NAME = 'rule_name'
+
+
+# The operations an explanation answers, in this order, and the object right each one needs
+EXPLAINED_OPERATIONS: tuple[ScopeOperation, ...] = (ScopeOperation.VIEW, ScopeOperation.CREATE, ScopeOperation.EDIT,
+                                                    ScopeOperation.DELETE)
+OPERATION_RIGHTS: Mapping[ScopeOperation, str] = MappingProxyType({
+    ScopeOperation.VIEW: ObjectRightName.VIEW.value,
+    ScopeOperation.CREATE: ObjectRightName.ADD.value,
+    ScopeOperation.EDIT: ObjectRightName.EDIT.value,
+    ScopeOperation.DELETE: ObjectRightName.DELETE.value,
+})

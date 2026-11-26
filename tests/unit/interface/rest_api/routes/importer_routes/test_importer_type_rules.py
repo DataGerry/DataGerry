@@ -23,13 +23,16 @@ rules that can only be answered against the stored type. Every rule returns a me
 raising, so no Flask app and no database are involved - the manager is a stub throughout.
 """
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from cmdb.models.type_model import TypeSchemaKey, DG_LOCATION_FIELD_NAME
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import TypeImportError
+from cmdb.interface.rest_api.routes.importer_routes import importer_type_rules
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
+    unknown_field_class_error,
     special_type_license_error,
     uses_ports_license_error,
     validate_create_special_type,
@@ -1161,3 +1164,32 @@ class TestStoredTypeUpdateBlockerIdentifiers:
 
         assert stored_type_update_blocker(IMPORTER, old_type, new_type, False) == \
             TypeIdentifierError.SURROUNDING_WHITESPACE.format(kind=IdentifierKind.FIELD.value, name=' ram')
+
+
+class TestUnknownFieldClass:
+    """An imported Type naming a field class the database lacks is refused (phase 12, D11)"""
+
+    @staticmethod
+    def _entry(*classes: str) -> dict[str, Any]:
+        """A Type entry with one field per class"""
+        return {'fields': [{'name': f'f{index}', 'protection': name} for index, name in enumerate(classes)]}
+
+    def test_an_unknown_class_is_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The existing one and system pass"""
+        classes = MagicMock()
+        classes.find_existing_names.return_value = {'compliance'}
+        monkeypatch.setattr(importer_type_rules.ManagerProvider, 'get_manager', lambda *_args: classes)
+
+        message = unknown_field_class_error(self._entry('compliance', 'gone', 'system'), MagicMock())
+
+        assert message == TypeImportError.UNKNOWN_FIELD_CLASSES.value.format(classes=['gone'])
+        classes.find_existing_names.assert_called_once_with(['compliance', 'gone'])
+
+    @pytest.mark.parametrize('entry', [{'fields': []}, {'fields': [{'name': 'a', 'protection': 'system'}]}, 'x'],
+                             ids=['no-class', 'system-only', 'no-entry'])
+    def test_nothing_to_look_up(self, monkeypatch: pytest.MonkeyPatch, entry: Any) -> None:
+        """No read at all"""
+        monkeypatch.setattr(importer_type_rules.ManagerProvider, 'get_manager',
+                            lambda *_args: pytest.fail('no read expected'))
+
+        assert unknown_field_class_error(entry, MagicMock()) is None

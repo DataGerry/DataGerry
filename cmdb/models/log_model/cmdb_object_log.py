@@ -71,7 +71,8 @@ class CmdbObjectLog(CmdbMetaLog):
                  changes: dict[str, Any] | list[Any] | None = None,
                  comment: str | None = None,
                  render_state: bytes | str | None = None,
-                 type_id: int | None = None) -> None:
+                 type_id: int | None = None,
+                 rule_changes: list[dict[str, Any]] | None = None) -> None:
         """
         Initializes a new instance of the CmdbObjectLog class,
         representing a log entry for changes made to a CMDB object.
@@ -96,6 +97,8 @@ class CmdbObjectLog(CmdbMetaLog):
                 of the log (JSON-encoded bytes)
             type_id (int | None): public_id of the logged object's CmdbType at log time - what the reads
                 judge the entry's visibility by. None for an entry whose type could not be determined
+            rule_changes (list[dict[str, Any]] | None): What the Field Rules changed on the write - ``{rule_id,
+                rule_name, field, before, after}`` each; stored only when a rule changed something
         """
         self.object_id = object_id
         self.type_id = type_id
@@ -105,6 +108,7 @@ class CmdbObjectLog(CmdbMetaLog):
         self.comment = comment
         self.changes = changes or []
         self.render_state = render_state
+        self.rule_changes = rule_changes or []
 
         super().__init__(
             public_id=public_id,
@@ -144,6 +148,7 @@ class CmdbObjectLog(CmdbMetaLog):
                 comment=data.get(ObjectLogKey.COMMENT.value, None),
                 action=data.get(ObjectLogKey.ACTION.value, None),
                 action_name=data.get(ObjectLogKey.ACTION_NAME.value, None),
+                rule_changes=data.get(ObjectLogKey.RULE_CHANGES.value),
             )
         except Exception as err:
             raise CmdbObjectLogInitFromDataError(err) from err
@@ -164,7 +169,7 @@ class CmdbObjectLog(CmdbMetaLog):
             dict[str, Any]: The stored form of the log
         """
         try:
-            return {
+            document: dict[str, Any] = {
                 ObjectLogKey.PUBLIC_ID.value: instance.public_id,
                 ObjectLogKey.LOG_TIME.value: instance.log_time,
                 ObjectLogKey.LOG_TYPE.value: instance.log_type,
@@ -179,5 +184,10 @@ class CmdbObjectLog(CmdbMetaLog):
                 ObjectLogKey.COMMENT.value: instance.comment,
                 ObjectLogKey.ACTION_NAME.value: instance.action_name
             }
+
+            if instance.rule_changes:
+                document[ObjectLogKey.RULE_CHANGES.value] = instance.rule_changes
+
+            return document
         except Exception as err:
             raise CmdbObjectLogToJsonError(err) from err

@@ -65,6 +65,7 @@ from cmdb.interface.route_utils import (
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import UpdateSingleResponse, GetMultiResponse, DefaultResponse
 from cmdb.interface.rest_api.routes.access_routes.access_scope_guard import guard_template_scope_change
+from cmdb.interface.rest_api.routes.access_routes.field_rule_guard import guard_template_rule_change
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_helper import (
     guard_template_fields,
     require_text,
@@ -446,6 +447,7 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         # A global template is copied into the Types using it - not into a sync target it would leave unusable
         guard_template_sync_targets(request_user, section_templates_manager, current_template, params)
         guard_template_scope_change(request_user, section_templates_manager, current_template, params)
+        guard_template_rule_change(request_user, section_templates_manager, current_template, params)
 
         section_templates_manager.update_section_template(public_id, params)
 

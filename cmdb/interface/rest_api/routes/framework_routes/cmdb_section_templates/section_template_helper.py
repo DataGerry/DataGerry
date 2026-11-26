@@ -31,6 +31,7 @@ from typing import Any
 
 from flask import abort
 
+from cmdb.framework.access_rules.field_protection_rules import protection_problems
 from cmdb.manager import ObjectsManager, SectionTemplatesManager, SettingsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
@@ -132,6 +133,8 @@ def guard_template_fields(fields: list[dict[str, Any]], stored_fields: list[dict
         ambiguous, and the type they are inlined into would be refused for it
       - a ``regex`` the browser and the server read alike (``field_pattern_rule``) - judged before the defaults,
         which are matched against it; on an update only the patterns the update adds or changes
+      - the class and audit flag of each field as stored (``field_protection_rules``) - the Field Protection routes
+        set them, and the stored ones are kept
 
     Args:
         fields (list[dict[str, Any]]): The parsed field list
@@ -141,6 +144,12 @@ def guard_template_fields(fields: list[dict[str, Any]], stored_fields: list[dict
         HTTPException: 400 naming the first rule a field entry breaks
     """
     seen: set[str] = set()
+
+    # A field's class and audit flag are set under Field Protection only - sent back as stored, kept (phase 12)
+    protection: list[str] = protection_problems(fields, stored_fields or [])
+
+    if protection:
+        abort(400, FIELD_DEFAULT_ERROR_SEPARATOR.join(protection))
 
     for field in fields:
         name: Any = field.get(FieldKey.NAME.value)

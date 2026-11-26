@@ -1,0 +1,48 @@
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+This module provides all errors for the FieldRulesManager
+"""
+from typing import Any
+
+from .field_rules_manager_errors import (
+    FieldRulesManagerError,
+    FieldRulesManagerInsertError,
+    FieldRulesManagerGetError,
+    FieldRulesManagerUpdateError,
+    FieldRulesManagerDeleteError,
+    FieldRulesManagerIterationError,
+)
+# -------------------------------------------------------------------------------------------------------------------- #
+
+__all__: list[str] = [
+    'FieldRulesManagerError',
+    'FieldRulesManagerInsertError',
+    'FieldRulesManagerGetError',
+    'FieldRulesManagerUpdateError',
+    'FieldRulesManagerDeleteError',
+    'FieldRulesManagerIterationError',
+    'FIELD_RULES_MANAGER_ERRORS',
+]
+
+
+FIELD_RULES_MANAGER_ERRORS: dict[str, Any] = {
+    "insert": FieldRulesManagerInsertError,
+    "get": FieldRulesManagerGetError,
+    "update": FieldRulesManagerUpdateError,
+    "delete": FieldRulesManagerDeleteError,
+    "iterate": FieldRulesManagerIterationError,
+}

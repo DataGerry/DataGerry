@@ -35,6 +35,22 @@ class FieldClassRight(AccessRight):
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
+class FieldProtectionRight(AccessRight):
+    """
+    Base class for the rights on the field protection - the class, flag and validation of the type and template fields
+    """
+    PREFIX: str = f'{AccessRight.PREFIX}.field'
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+class FieldRuleRight(AccessRight):
+    """
+    Base class for the rights on the Field Rules
+    """
+    PREFIX: str = f'{AccessRight.PREFIX}.fieldrule'
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
 class ScopeRoleRight(AccessRight):
     """
     Base class for the rights on the scope roles
@@ -48,3 +64,11 @@ class AssignmentRight(AccessRight):
     Base class for the rights on the assignments
     """
     PREFIX: str = f'{AccessRight.PREFIX}.assignment'
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+class AccessHistoryRight(AccessRight):
+    """
+    Base class for the rights on the access change history
+    """
+    PREFIX: str = f'{AccessRight.PREFIX}.history'

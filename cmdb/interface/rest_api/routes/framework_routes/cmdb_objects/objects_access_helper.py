@@ -21,15 +21,18 @@ itself, and answers like ``GET /objects/<id>`` does: 403 when the caller's group
 Whether a missing object is refused is the caller's choice - the object's logs outlive it, its relations do not.
 
 The write check (``abort_unless_write_allowed``) is the access engine's decision on the object itself: the Type of
-each state the operation touches, and every field the write changes
+each state the operation touches, and every field the write changes. The Field Rules run right after it
+(``apply_object_field_rules``) - as the server, so nothing they write is judged against the writer
 """
 from typing import Any
 
 from flask import abort
 
 from cmdb.manager import ObjectsManager
-from cmdb.framework.access_engine import AccessDecision, can, refusal_message
+from cmdb.framework.access_engine import AccessDecision, can, classes_of_fields, refusal_message
+from cmdb.framework.field_rules import RuleApplication, run_field_rules
 from cmdb.models.access_model import ScopeOperation
+from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
 
@@ -76,7 +79,8 @@ def read_object_or_abort(
 
 
 def abort_unless_write_allowed(request_user: CmdbUser, operation: ScopeOperation,
-                               before: dict[str, Any] | None, after: dict[str, Any]) -> None:
+                               before: dict[str, Any] | None, after: dict[str, Any],
+                               object_type: CmdbType | None = None) -> None:
     """
     Refuses an object create or edit the access engine does not allow - a Type the operation is not granted on, or a
     changed field the granting roles may not write
@@ -86,11 +90,40 @@ def abort_unless_write_allowed(request_user: CmdbUser, operation: ScopeOperation
         operation (ScopeOperation): CREATE or EDIT
         before (dict[str, Any] | None): The stored object; None for a create
         after (dict[str, Any]): The object as it would be stored
+        object_type (CmdbType | None): The Type the object is stored as, when the caller holds it - its fields'
+            classes are read from it instead of the database. Defaults to None
 
     Raises:
         HTTPException: 403 naming the refused fields or the Type
     """
-    decision: AccessDecision = can(request_user, operation, before, after)
+    decision: AccessDecision = can(request_user, operation, before, after, field_classes=classes_of_fields(
+        object_type.get_fields()) if object_type is not None else None)
 
     if not decision.allowed:
         abort(403, refusal_message(decision))
+
+
+def apply_object_field_rules(request_user: CmdbUser, before: dict[str, Any] | None, after: dict[str, Any],
+                             object_type: CmdbType) -> list[dict[str, Any]]:
+    """
+    Runs the active Field Rules on an object write that passed its write check - their values written into the state
+
+    Args:
+        request_user (CmdbUser): The writer
+        before (dict[str, Any] | None): The stored object; None for a create
+        after (dict[str, Any]): The object as it would be stored (changed in place)
+        object_type (CmdbType): The Type the object is stored as
+
+    Raises:
+        HTTPException: 400 naming the rule whose value the field would refuse
+
+    Returns:
+        list[dict[str, Any]]: What the rules changed - the object log records it
+    """
+    application: RuleApplication = run_field_rules(request_user, before, after, object_type.get_fields() or [],
+                                                   object_type.get_all_mds_fields())
+
+    if application.problems:
+        abort(400, ' '.join(application.problems))
+
+    return application.changes

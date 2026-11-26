@@ -29,12 +29,24 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.database.database_services.collection_validator import CollectionValidator
 from cmdb.manager import FieldClassesManager, ScopeRolesManager
 from cmdb.models.access_model import CmdbFieldClass, CmdbScopeRole
+from cmdb.models.access_model import HistoryKind
+from cmdb.models.user_model import CmdbUser
+from cmdb.interface.rest_api.routes.access_routes import access_routes_helper
 from cmdb.interface.rest_api.routes.access_routes.access_routes_helper import create_response, update_response
+from cmdb.interface.rest_api.routes.access_routes.access_history_helper import ChangeContext
 # -------------------------------------------------------------------------------------------------------------------- #
 
 SCRATCH_SUFFIX: str = '-access-race'
 TAKEN: str = 'taken!'
 CLASS: dict[str, Any] = {'name': 'compliance', 'label': 'Compliance', 'description': ''}
+ADMIN: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_ids=[1])
+
+
+@pytest.fixture(autouse=True)
+def fixture_no_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No history read or written - a refused write records nothing anyway, and the race is the subject"""
+    monkeypatch.setattr(access_routes_helper, 'concerned_groups', lambda *_args: set())
+    monkeypatch.setattr(access_routes_helper, 'record_change', lambda *_args: None)
 
 
 def _role(name: str) -> dict[str, Any]:
@@ -62,7 +74,7 @@ def test_a_create_losing_the_race(database_manager: MongoDatabaseManager, scratc
     manager.insert_item(dict(CLASS))
 
     with pytest.raises(BadRequest) as raised:
-        create_response(manager, CmdbFieldClass, dict(CLASS), TAKEN)
+        create_response(manager, CmdbFieldClass, dict(CLASS), TAKEN, ChangeContext(ADMIN, HistoryKind.FIELD_CLASS))
 
     assert raised.value.description == TAKEN
     assert manager.count_documents({}) == 1
@@ -73,9 +85,11 @@ def test_an_update_losing_the_race(database_manager: MongoDatabaseManager, scrat
     manager = ScopeRolesManager(database_manager, scratch)
     manager.insert_item(_role('first'))
     second: int = manager.insert_item(_role('second'))
+    stored: dict[str, Any] = manager.get_item(second, as_dict=True)
 
     with pytest.raises(BadRequest) as raised:
-        update_response(manager, CmdbScopeRole, second, _role('first'), TAKEN)
+        update_response(manager, CmdbScopeRole, second, _role('first'), TAKEN,
+                        ChangeContext(ADMIN, HistoryKind.SCOPE_ROLE), stored)
 
     assert raised.value.description == TAKEN
     assert manager.get_item(second, as_dict=True)['name'] == 'second'

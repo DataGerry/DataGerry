@@ -31,7 +31,8 @@ class ImportSuccessMessage(ImportMessage):
     def __init__(self,
                  public_id: int,
                  obj: dict[str, Any] | None = None,
-                 changes: dict[str, Any] | None = None) -> None:
+                 changes: dict[str, Any] | None = None,
+                 rule_changes: list[dict[str, Any]] | None = None) -> None:
         """
         Initialises the ImportSuccessMessage
 
@@ -40,9 +41,11 @@ class ImportSuccessMessage(ImportMessage):
             obj (dict[str, Any] | None): CmdbObject instance
             changes (dict[str, Any] | None): The diff of an overwrite, which edited the stored object; None for an
                 object the import created. Defaults to None
+            rule_changes (list[dict[str, Any]] | None): What the Field Rules changed on the write. Defaults to None
         """
         self.public_id = public_id
         self.changes = changes
+        self.rule_changes = rule_changes
         super().__init__(obj=obj)
 
 

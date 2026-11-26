@@ -29,11 +29,18 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.access_model import CmdbFieldClass, CmdbScopeRole, FieldClassKey
 from cmdb.framework.access_rules import AccessRuleMessage, field_class_in_use
+from cmdb.interface.rest_api.routes.access_routes.field_protection_helper import fields_carrying_class
 from cmdb.interface.rest_api.routes.access_routes.access_payloads import (
     field_class_create_payload,
     field_class_update_payload,
 )
+from cmdb.models.access_model import HistoryKind
 from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.rest_api.routes.access_routes.access_history_helper import (
+    ChangeContext,
+    query_comment,
+    take_comment,
+)
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import GetSingleResponse
@@ -96,11 +103,12 @@ def create_field_class(data: dict[str, Any], request_user: CmdbUser) -> Response
     Returns:
         InsertSingleResponse: 201 with the stored field class and its public_id
     """
+    change: ChangeContext = ChangeContext(request_user, HistoryKind.FIELD_CLASS, take_comment(data))
     manager: FieldClassesManager = _manager(request_user)
     payload: dict[str, Any] = field_class_create_payload(manager, data)
 
     return create_response(manager, CmdbFieldClass, payload, AccessRuleMessage.FIELD_CLASS_NAME_TAKEN.value.format(
-        name=payload[FieldClassKey.NAME.value]))
+        name=payload[FieldClassKey.NAME.value]), change)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -155,8 +163,8 @@ def get_field_class(public_id: int, request_user: CmdbUser) -> Response:
 @handle_route_errors("while retrieving the usage of the field class with ID: {public_id}")
 def get_field_class_usage(public_id: int, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET`/`HEAD` route for what holds a field class - the scope roles granting it - so a screen can tell before
-    a delete
+    HTTP `GET`/`HEAD` route for what holds a field class - the scope roles granting it and the fields carrying it
+    (phase 12) - so a screen can tell before a delete
 
     Args:
         public_id (int): The field class's public_id
@@ -166,14 +174,18 @@ def get_field_class_usage(public_id: int, request_user: CmdbUser) -> Response:
         HTTPException: 404 when it does not exist
 
     Returns:
-        GetSingleResponse: ``{scope_roles: [documents as stored]}``, ascending by public_id; empty when nothing holds it
+        GetSingleResponse: ``{scope_roles: [documents as stored], fields: [{source, source_id, name}]}``; empty lists
+            when nothing holds it
     """
     stored: dict[str, Any] = load_or_404(_manager(request_user), public_id, LABEL)
     roles: ScopeRolesManager = ManagerProvider.get_manager(ManagerType.SCOPE_ROLES, request_user)
     granting: list[dict[str, Any]] = roles.roles_granting_class(stored[FieldClassKey.NAME.value])
     holders: list[dict[str, Any]] = as_model_json(CmdbScopeRole, granting)
 
-    return GetSingleResponse({AccessUsageKey.SCOPE_ROLES.value: holders}, body=request_wants_body()).make_response()
+    return GetSingleResponse({AccessUsageKey.SCOPE_ROLES.value: holders,
+                              AccessUsageKey.FIELDS.value: fields_carrying_class(
+                                  request_user, stored[FieldClassKey.NAME.value])},
+                             body=request_wants_body()).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -198,13 +210,14 @@ def update_field_class(public_id: int, data: dict[str, Any], request_user: CmdbU
     Returns:
         UpdateSingleResponse: 202 with the field class as stored
     """
+    change: ChangeContext = ChangeContext(request_user, HistoryKind.FIELD_CLASS, take_comment(data))
     manager: FieldClassesManager = _manager(request_user)
     stored: dict[str, Any] = load_or_404(manager, public_id, LABEL)
     payload: dict[str, Any] = field_class_update_payload(stored, data)
 
     taken: str = AccessRuleMessage.FIELD_CLASS_NAME_TAKEN.value.format(name=payload[FieldClassKey.NAME.value])
 
-    return update_response(manager, CmdbFieldClass, public_id, payload, taken)
+    return update_response(manager, CmdbFieldClass, public_id, payload, taken, change, stored)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -222,14 +235,18 @@ def delete_field_class(public_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): The caller
 
     Raises:
-        HTTPException: 404 when it does not exist; 400 while a scope role grants it (``/usage`` names who)
+        HTTPException: 404 when it does not exist; 400 while a scope role grants it or a field carries it (``/usage``
+            names who)
 
     Returns:
         DeleteSingleResponse: 202 with the field class as it was stored
     """
+    change: ChangeContext = ChangeContext(request_user, HistoryKind.FIELD_CLASS, query_comment())
     manager: FieldClassesManager = _manager(request_user)
     stored: dict[str, Any] = load_or_404(manager, public_id, LABEL)
     roles: ScopeRolesManager = ManagerProvider.get_manager(ManagerType.SCOPE_ROLES, request_user)
-    abort_on_problems([field_class_in_use(roles, stored)])
+    carrying: list[dict[str, Any]] = fields_carrying_class(request_user, stored[FieldClassKey.NAME.value])
+    abort_on_problems([field_class_in_use(roles, stored), AccessRuleMessage.FIELD_CLASS_ON_FIELDS.value.format(
+        name=stored[FieldClassKey.NAME.value], count=len(carrying)) if carrying else None])
 
-    return delete_response(manager, stored)
+    return delete_response(manager, stored, change)

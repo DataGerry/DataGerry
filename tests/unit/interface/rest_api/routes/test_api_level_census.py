@@ -99,6 +99,10 @@ FILE_LEVELS: dict[str, str] = {
     'access_routes/migration_report_routes.py': ADMIN,
     'access_routes/type_assignment_routes.py': ADMIN,
     'access_routes/scope_catalogue_routes.py': ADMIN,
+    'access_routes/field_protection_routes.py': SUPER_ADMIN,
+    'access_routes/field_rule_routes.py': SUPER_ADMIN,
+    'access_routes/explain_routes.py': ADMIN,
+    'access_routes/history_routes.py': ADMIN,
     # Rebuilds or wipes the tenant's whole configuration
     'configuration_transfer_routes/configuration_transfer_routes.py': SUPER_ADMIN,
     # The feature and presentation surfaces: never the cloud API key
@@ -187,6 +191,9 @@ ROUTE_EXCEPTIONS: dict[str, dict[str, str]] = {
                                            'get_assignment_usage': ADMIN,
                                            # Judges a scope, writes nothing - a read of the access rules
                                            'check_assignment_scope': ADMIN, 'simulate_assignment_route': ADMIN},
+    'access_routes/field_protection_routes.py': {'get_field_protection': ADMIN, 'test_field_pattern': ADMIN},
+    'access_routes/field_rule_routes.py': {'get_field_rules': ADMIN, 'get_field_rule': ADMIN},
+    'access_routes/history_routes.py': {'update_access_history_settings': SUPER_ADMIN},
 }
 
 # Routes that declare no level at all: (file, function) -> why

@@ -15,11 +15,13 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 The permission data model: field classes, scope roles and assignments - which user group may perform which
-operation and write which field class on which objects
+operation and write which field class on which objects - and the history of their changes
 """
 from .scope_operation_enum import ScopeOperation
 from .access_constants import (
     FieldClassKey,
+    FieldRuleKey,
+    MAX_RULE_SET_FIELDS,
     ScopeRoleKey,
     AccessAssignmentKey,
     SYSTEM_FIELD_CLASS,
@@ -53,11 +55,39 @@ from .migration_report_constants import (
 from .cmdb_field_class import CmdbFieldClass
 from .cmdb_scope_role import CmdbScopeRole
 from .cmdb_access_assignment import CmdbAccessAssignment
+from .cmdb_field_rule import CmdbFieldRule
+from .access_history_constants import (
+    AccessHistoryKey,
+    HistoryAction,
+    HistoryKind,
+    HistorySource,
+    MAX_HISTORY_COMMENT_LENGTH,
+    HISTORY_TTL_INDEX_NAME,
+    HISTORY_COMMENT_KEY,
+    HISTORY_SETTINGS_SECTION,
+    MAX_RETENTION_DAYS,
+    HistorySettingsKey,
+)
+from .cmdb_access_history import CmdbAccessHistory
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'AccessHistoryKey',
+    'HistoryAction',
+    'HistoryKind',
+    'HistorySource',
+    'MAX_HISTORY_COMMENT_LENGTH',
+    'HISTORY_TTL_INDEX_NAME',
+    'HISTORY_COMMENT_KEY',
+    'HISTORY_SETTINGS_SECTION',
+    'MAX_RETENTION_DAYS',
+    'HistorySettingsKey',
+    'CmdbAccessHistory',
     'ScopeOperation',
     'CmdbFieldClass',
+    'CmdbFieldRule',
+    'FieldRuleKey',
+    'MAX_RULE_SET_FIELDS',
     'CmdbScopeRole',
     'CmdbAccessAssignment',
     'FieldClassKey',

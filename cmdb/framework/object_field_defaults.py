@@ -34,7 +34,11 @@ Two kinds of default are never filled:
 The fill runs before the required-field rule, so a required field with a usable default is satisfied by
 it, and before the value rules, which then judge the filled value like any other. It covers the
 top-level `fields` list and every row of the multi-data sections the object carries
+
+A field of the ``system`` class is no user's to write - not even through its default. The object writes fill the other
+fields' defaults before the write check and the ``system`` fields' after it, as the server (``skipped`` / ``names``)
 """
+from collections.abc import Collection
 from logging import Logger, getLogger
 from typing import Any
 
@@ -145,7 +149,8 @@ def fill_entries_from_defaults(
         entries.append(appended)
 
 
-def fill_object_defaults(object_data: dict[str, Any], type_instance: CmdbType) -> None:
+def fill_object_defaults(object_data: dict[str, Any], type_instance: CmdbType, *, skipped: Collection[str] = (),
+                         names: Collection[str] | None = None) -> None:
     """
     Fills a new CmdbObject's empty fields from its CmdbType's usable defaults, in place
 
@@ -155,19 +160,22 @@ def fill_object_defaults(object_data: dict[str, Any], type_instance: CmdbType) -
     Args:
         object_data (dict[str, Any]): The candidate CmdbObject document (mutated in place)
         type_instance (CmdbType): The object's CmdbType
+        skipped (Collection[str]): Fields whose defaults are left for later. Defaults to none
+        names (Collection[str] | None): Only these fields get their defaults; None for every field. Defaults to None
     """
     type_fields: list[dict[str, Any]] = type_instance.get_fields() or []
     rules: dict[str, FieldValueRule] = build_field_value_rules(type_fields)
     budget: PatternBudget = PatternBudget()
     usable: dict[Any, Any] = {
         field.get(FieldKey.NAME.value): usable_default(field, rules.get(field.get(FieldKey.NAME.value)), budget)
-        for field in type_fields
+        for field in type_fields if field.get(FieldKey.NAME.value) not in skipped
+        and (names is None or field.get(FieldKey.NAME.value) in names)
     }
     field_types: dict[Any, Any] = {
         field.get(FieldKey.NAME.value): field.get(FieldKey.TYPE.value) for field in type_fields
     }
     section_fields: dict[str, list[str]] = mds_section_field_names(type_instance)
-    mds_names: set[str] = set().union(*(set(names) for names in section_fields.values())) if section_fields else set()
+    mds_names: set[str] = set().union(*(set(listed) for listed in section_fields.values())) if section_fields else set()
 
     fill_entries_from_defaults(
         object_data.setdefault(CmdbObjectKey.FIELDS.value, []),
@@ -176,14 +184,14 @@ def fill_object_defaults(object_data: dict[str, Any], type_instance: CmdbType) -
     )
 
     for section in object_data.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value) or []:
-        names: list[str] = section_fields.get(section.get(CmdbObjectMdsKey.SECTION_ID.value), [])
+        section_names: list[str] = section_fields.get(section.get(CmdbObjectMdsKey.SECTION_ID.value), [])
 
-        if not names:
+        if not section_names:
             continue
 
         for row in section.get(CmdbObjectMdsKey.VALUES.value) or []:
             fill_entries_from_defaults(
                 row.setdefault(CmdbObjectMdsRowKey.DATA.value, []),
-                {name: usable.get(name) for name in names},
+                {name: usable.get(name) for name in section_names if name in usable},
                 field_types,
             )

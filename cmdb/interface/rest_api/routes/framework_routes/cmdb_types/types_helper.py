@@ -47,6 +47,8 @@ from cmdb.manager.types_mds_helper import (
     build_mds_updates,
     plan_mds_changes,
 )
+from cmdb.models.access_model import HistorySource
+from cmdb.interface.rest_api.routes.access_routes.access_history_helper import pull_types_with_history
 from cmdb.manager import (
     TypesManager,
     LocationsManager,
@@ -56,6 +58,7 @@ from cmdb.manager import (
     CategoriesManager,
     CiExplorerProfileManager,
     ObjectGroupsManager,
+    FieldRulesManager,
     ScopeRolesManager,
     SectionTemplatesManager,
 )
@@ -990,9 +993,16 @@ def type_deletion_followup(
     # Delete this type_id from all CiExplorerProfiles
     ci_explorer_profile_manager.remove_type_from_profiles(public_id)
 
-    # Delete this type_id from every scope role listing it - a role left with no Type stays and grants nothing
+    # Delete this type_id from every scope role and Field Rule listing it - one left with no Type stays and grants /
+    # runs nowhere; each change is recorded in the access change history
     scope_roles_manager: ScopeRolesManager = ManagerProvider.get_manager(ManagerType.SCOPE_ROLES, request_user)
-    scope_roles_manager.pull_type_from_roles(public_id)
+    field_rules_manager: FieldRulesManager = ManagerProvider.get_manager(ManagerType.FIELD_RULES, request_user)
+    pull_types_with_history(
+        request_user, HistorySource.TYPE_DELETE,
+        lambda type_ids: [type_id for type_id in type_ids if type_id != public_id],
+        scope_roles_manager.roles_naming_type(public_id), field_rules_manager.rules_naming_type(public_id),
+        lambda: (scope_roles_manager.pull_type_from_roles(public_id),
+                 field_rules_manager.pull_type_from_rules(public_id)))
     forget_grants()
 
     # Delete the type from all dynamic groups

@@ -88,7 +88,15 @@ from cmdb.models.right_model.license_rights import (
 )
 from cmdb.models.right_model.export_rights import ExportRight, ExportObjectRight, ExportTypeRight
 from cmdb.models.right_model.docapi_rights import DocapiRight, DocapiTemplateRight
-from cmdb.models.right_model.access_rights import AccessRight, AssignmentRight, FieldClassRight, ScopeRoleRight
+from cmdb.models.right_model.access_rights import (
+    AccessRight,
+    AssignmentRight,
+    FieldClassRight,
+    FieldProtectionRight,
+    FieldRuleRight,
+    ScopeRoleRight,
+    AccessHistoryRight,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 BASE_RIGHT = (
@@ -774,6 +782,38 @@ ACCESS_RIGHTS = (
                 description=(
                     'Create, change and delete field classes - the protection classes a field can carry. A class a '
                     'scope role grants cannot be deleted'
+                ),
+            ),
+        ),
+        FieldProtectionRight(GLOBAL_RIGHT_IDENTIFIER,
+                             description='All field protection rights: change the class and validation of fields'),
+        (
+            FieldProtectionRight(
+                'edit',
+                description=(
+                    'Change the field class, the audit flag, required and the pattern of the fields of every type and '
+                    'global section template - who may write a classed field is decided by the scope roles'
+                ),
+            ),
+        ),
+        FieldRuleRight(GLOBAL_RIGHT_IDENTIFIER, description='All Field Rule rights: create, change and delete them'),
+        (
+            FieldRuleRight(
+                'edit',
+                description=(
+                    'Create, change and delete Field Rules - fields the server sets when a user changes other fields. '
+                    'A rule writes as the server, so it may only set fields one could write oneself (administrators '
+                    'exempt)'
+                ),
+            ),
+        ),
+        AccessHistoryRight(GLOBAL_RIGHT_IDENTIFIER, description='All access change history rights: export it'),
+        (
+            AccessHistoryRight(
+                'export',
+                description=(
+                    'Export the access change history (JSON or CSV) and set how long it is kept. Reading it needs the '
+                    'access rules view right'
                 ),
             ),
         ),

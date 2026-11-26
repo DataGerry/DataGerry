@@ -36,12 +36,19 @@ from cmdb.interface.rest_api.routes.access_routes.access_change_guard import (
 )
 from cmdb.interface.rest_api.routes.access_routes.access_delegation import abort_unless_delegable
 from cmdb.interface.rest_api.routes.access_routes.assignment_simulation_helper import simulate_assignment
+from cmdb.interface.rest_api.routes.access_routes.field_rule_guard import guard_scope_rule_fields
 from cmdb.interface.rest_api.routes.access_routes.access_payloads import (
     checked_scope,
     abort_if_beyond_own_reach,
     assignment_payload,
 )
+from cmdb.models.access_model import HistoryKind
 from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.rest_api.routes.access_routes.access_history_helper import (
+    ChangeContext,
+    query_comment,
+    take_comment,
+)
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import GetSingleResponse
@@ -111,6 +118,8 @@ def _judged(manager: AccessAssignmentsManager, request_user: CmdbUser, assignmen
     roles: ScopeRolesManager = ManagerProvider.get_manager(ManagerType.SCOPE_ROLES, request_user)
     types: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
     payload: dict[str, Any] = assignment_payload(manager, groups, roles, assignment, own_id, sent, types)
+    guard_scope_rule_fields(request_user, roles, payload[AccessAssignmentKey.ROLE_ID.value],
+                            payload[AccessAssignmentKey.SCOPE.value])
     group_id: int = payload[AccessAssignmentKey.GROUP_ID.value]
 
     if group_id in request_user.group_ids:
@@ -156,12 +165,13 @@ def create_assignment(data: dict[str, Any], request_user: CmdbUser) -> Response:
     Returns:
         InsertSingleResponse: 201 with the stored assignment and its public_id
     """
+    change: ChangeContext = ChangeContext(request_user, HistoryKind.ASSIGNMENT, take_comment(data))
     manager: AccessAssignmentsManager = _manager(request_user)
     payload: dict[str, Any] = _judged(manager, request_user, data)
     abort_unless_delegable(request_user, [payload[AccessAssignmentKey.ROLE_ID.value]])
     guard_assignment_write(request_user, None, payload)
 
-    return create_response(manager, CmdbAccessAssignment, payload, _taken(payload))
+    return create_response(manager, CmdbAccessAssignment, payload, _taken(payload), change)
 
 @assignments_blueprint.route('/check', methods=['POST'])
 @insert_request_user
@@ -188,6 +198,7 @@ def check_assignment_scope(data: dict[str, Any], request_user: CmdbUser) -> Resp
     types: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
     role_id: int = data[AccessAssignmentKey.ROLE_ID.value]
     scope: Any = checked_scope(roles, types, role_id, data[AccessAssignmentKey.SCOPE.value])
+    guard_scope_rule_fields(request_user, roles, role_id, scope)
 
     return GetSingleResponse({AccessAssignmentKey.ROLE_ID.value: role_id, AccessAssignmentKey.SCOPE.value: scope},
                              body=True).make_response()
@@ -287,6 +298,7 @@ def update_assignment(public_id: int, data: dict[str, Any], request_user: CmdbUs
     Returns:
         UpdateSingleResponse: 202 with the assignment as stored
     """
+    change: ChangeContext = ChangeContext(request_user, HistoryKind.ASSIGNMENT, take_comment(data))
     manager: AccessAssignmentsManager = _manager(request_user)
     stored: dict[str, Any] = load_or_404(manager, public_id, LABEL)
     payload: dict[str, Any] = _judged(manager, request_user, keep_omitted_keys(data, stored), public_id, data)
@@ -294,7 +306,7 @@ def update_assignment(public_id: int, data: dict[str, Any], request_user: CmdbUs
                                           payload[AccessAssignmentKey.ROLE_ID.value]])
     guard_assignment_write(request_user, stored, payload)
 
-    return update_response(manager, CmdbAccessAssignment, public_id, payload, _taken(payload))
+    return update_response(manager, CmdbAccessAssignment, public_id, payload, _taken(payload), change, stored)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -318,12 +330,13 @@ def delete_assignment(public_id: int, request_user: CmdbUser) -> Response:
     Returns:
         DeleteSingleResponse: 202 with the assignment as it was stored
     """
+    change: ChangeContext = ChangeContext(request_user, HistoryKind.ASSIGNMENT, query_comment())
     manager: AccessAssignmentsManager = _manager(request_user)
     stored: dict[str, Any] = load_or_404(manager, public_id, LABEL)
     abort_unless_delegable(request_user, [stored[AccessAssignmentKey.ROLE_ID.value]])
     guard_assignment_write(request_user, stored, None)
 
-    return delete_response(manager, stored)
+    return delete_response(manager, stored, change)
 
 
 @assignments_blueprint.route('/<int:public_id>/usage', methods=['GET', 'HEAD'])

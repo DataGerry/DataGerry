@@ -90,6 +90,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     validate_type_structure,
     stored_type_update_blocker,
     as_public_id,
+    unknown_field_class_error,
 )
 from cmdb.framework.section_templates.global_template_reconcile import resolve_global_templates
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_repairs import (
@@ -671,7 +672,8 @@ def create_type_from_entry(
     strip_uploaded_public_id(type_entry)
 
     # Judged before anything is assigned, so a rejected entry does not consume a public_id
-    entry_error = prepare_create_entry(type_entry, types_manager, section_templates_manager, ipam_locked)
+    entry_error = unknown_field_class_error(type_entry, request_user) or prepare_create_entry(
+        type_entry, types_manager, section_templates_manager, ipam_locked)
 
     if entry_error:
         return entry_error
@@ -773,7 +775,8 @@ def update_type_from_entry(
     # Before the defaults of the create rules: a flag the entry leaves out keeps the stored value
     keep_omitted_type_flags(type_entry, old_type)
 
-    entry_error = prepare_update_entry(type_entry, types_manager, section_templates_manager, ipam_locked)
+    entry_error = unknown_field_class_error(type_entry, request_user) or prepare_update_entry(
+        type_entry, types_manager, section_templates_manager, ipam_locked)
 
     if entry_error:
         return entry_error

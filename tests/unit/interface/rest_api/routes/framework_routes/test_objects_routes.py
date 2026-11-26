@@ -244,7 +244,7 @@ class TestInsertCmdbObjectSyncsPostInsertCount:
                  patch(f'{HELPER_PATH}.sync_select_field_options'), \
                  patch(f'{HELPER_PATH}.handle_notify_webhooks'), \
                  patch(f'{HELPER_PATH}.handle_create_object_log',
-                       side_effect=lambda *_: steps.append('log')), \
+                       side_effect=lambda *_, **__: steps.append('log')), \
                  patch(f'{HELPER_PATH}.CmdbObject') as cmdb_object, \
                  patch(f'{HELPER_PATH}.handle_sync_config_item_count',
                        side_effect=lambda *_: steps.append('sync')) as sync:

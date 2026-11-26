@@ -120,7 +120,7 @@ class TestAbortUnlessWriteAllowed:
         """The engine asked with the writer, the operation and both states"""
         asked: list[Any] = []
         user = MagicMock()
-        monkeypatch.setattr(objects_access_helper, 'can', lambda *args: asked.append(args) or AccessDecision(
+        monkeypatch.setattr(objects_access_helper, 'can', lambda *args, **_kwargs: asked.append(args) or AccessDecision(
             True, ScopeOperation.EDIT, AccessDecisionStep.SCOPE, 7))
 
         abort_unless_write_allowed(user, ScopeOperation.EDIT, self.BEFORE, self.AFTER)
@@ -129,7 +129,7 @@ class TestAbortUnlessWriteAllowed:
 
     def test_a_refused_field_is_a_403_naming_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The refusal message as it comes"""
-        monkeypatch.setattr(objects_access_helper, 'can', lambda *args: AccessDecision(
+        monkeypatch.setattr(objects_access_helper, 'can', lambda *args, **_kwargs: AccessDecision(
             False, ScopeOperation.EDIT, AccessDecisionStep.FIELD_CLASS, 7, ('host',)))
 
         with pytest.raises(HTTPException) as raised:

@@ -102,6 +102,7 @@ class TypeImportError(BaseStrEnum):
     SPECIAL_TYPE_IMMUTABLE = 'The special Type of a stored Type can not be changed by an import ' \
                              '(stored: {stored}, uploaded: {uploaded})!'
     NOT_A_TYPE_ENTRY = 'This entry is not a Type object!'
+    UNKNOWN_FIELD_CLASSES = 'The fields name the field classes {classes}, which do not exist here - create them first!'
     NORMALIZATION_FAILED = 'Failed to prepare this Type for import: {detail}'
     FOREIGN_FIELD_IN_TEMPLATE_SECTION = 'The section of the global section template "{template}" holds ' \
                                         'field(s) the template does not own: {names}'

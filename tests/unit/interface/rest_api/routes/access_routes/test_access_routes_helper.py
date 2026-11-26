@@ -31,7 +31,9 @@ from cmdb.errors.manager.field_classes_manager import (
     FieldClassesManagerInsertError,
     FieldClassesManagerUpdateError,
 )
-from cmdb.models.access_model import CmdbFieldClass
+from cmdb.models.access_model import CmdbFieldClass, HistoryKind
+from cmdb.interface.rest_api.routes.access_routes import access_routes_helper
+from cmdb.interface.rest_api.routes.access_routes.access_history_helper import ChangeContext
 from cmdb.interface.rest_api.routes.routes_helper import PROBLEM_SEPARATOR, abort_on_problems
 from cmdb.interface.rest_api.routes.access_routes.access_routes_helper import (
     as_model_json,
@@ -45,6 +47,14 @@ PUBLIC_ID: int = 11
 TAKEN: str = 'taken!'
 CLASS: dict[str, Any] = {'name': 'compliance', 'label': 'Compliance', 'description': ''}
 STORED_CLASS: dict[str, Any] = {'name': 'compliance', 'label': 'Compliance', 'public_id': PUBLIC_ID}
+CHANGE: ChangeContext = ChangeContext(MagicMock(), HistoryKind.FIELD_CLASS)
+
+
+@pytest.fixture(name='no_history')
+def fixture_no_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No history read or written - the helpers' own behaviour is under test"""
+    monkeypatch.setattr(access_routes_helper, 'concerned_groups', lambda *_args: set())
+    monkeypatch.setattr(access_routes_helper, 'record_change', lambda *_args: None)
 
 
 def _manager() -> MagicMock:
@@ -113,6 +123,7 @@ class TestAbortOnProblems:
         assert raised.value.description == PROBLEM_SEPARATOR.join(['first', 'second'])
 
 
+@pytest.mark.usefixtures('no_history')
 class TestALostRace:
     """A unique index refusing the write is the pre-check's 400; anything else is raised."""
 
@@ -122,7 +133,7 @@ class TestALostRace:
         manager.insert_item.side_effect = _duplicate(FieldClassesManagerInsertError)
 
         with pytest.raises(BadRequest) as raised:
-            create_response(manager, CmdbFieldClass, CLASS, TAKEN)
+            create_response(manager, CmdbFieldClass, CLASS, TAKEN, CHANGE)
 
         assert raised.value.description == TAKEN
 
@@ -132,7 +143,7 @@ class TestALostRace:
         manager.update_item.side_effect = _duplicate(FieldClassesManagerUpdateError)
 
         with pytest.raises(BadRequest) as raised:
-            update_response(manager, CmdbFieldClass, PUBLIC_ID, dict(CLASS), TAKEN)
+            update_response(manager, CmdbFieldClass, PUBLIC_ID, dict(CLASS), TAKEN, CHANGE, dict(STORED_CLASS))
 
         assert raised.value.description == TAKEN
 
@@ -143,6 +154,6 @@ class TestALostRace:
         manager.insert_item.side_effect = failure
 
         with pytest.raises(FieldClassesManagerInsertError) as raised:
-            create_response(manager, CmdbFieldClass, CLASS, TAKEN)
+            create_response(manager, CmdbFieldClass, CLASS, TAKEN, CHANGE)
 
         assert raised.value is failure

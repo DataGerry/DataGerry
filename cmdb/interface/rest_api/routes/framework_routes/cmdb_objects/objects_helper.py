@@ -84,9 +84,15 @@ from cmdb.models.object_model import (
     CmdbObjectMdsRowKey,
 )
 from cmdb.models.log_model.log_action_enum import LogAction
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_field_warnings import (
+    record_field_warnings,
+    required_exemptions,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_access_helper import (
     abort_unless_write_allowed,
+    apply_object_field_rules,
 )
+from cmdb.framework.access_engine.field_class_lookup import system_field_names
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.framework.section_templates import (
     PREDEFINED_SELECT_OPTION_REJECTED,
@@ -755,7 +761,9 @@ def validate_and_fill_object_fields(
             validate_field_list(value.get(CmdbObjectMdsRowKey.DATA.value, []))
 
 
-def validate_required_object_fields(object_data: dict[str, Any], object_type: CmdbType) -> None:
+def validate_required_object_fields(object_data: dict[str, Any], object_type: CmdbType,
+                                   request_user: CmdbUser | None = None,
+                                   operation: ScopeOperation = ScopeOperation.EDIT) -> None:
     """
     Rejects an object write that leaves a field its CmdbType marks 'required' without a value
 
@@ -766,19 +774,28 @@ def validate_required_object_fields(object_data: dict[str, Any], object_type: Cm
     field the payload does not carry at all is missing too.
 
     A required field of a multi-data section is checked in every row the object carries for that
-    section; a section without rows requires nothing
+    section; a section without rows requires nothing. A ``system`` field is required of no user, and a classed field
+    only of a writer who may write its class - the others save without it and the answer warns (phase 12, D7)
 
     Args:
         object_data (dict[str, Any]): The about-to-be-saved CmdbObject document
         object_type (CmdbType): The CmdbType of the object
+        request_user (CmdbUser | None): The writer; None judges no class. Defaults to None
+        operation (ScopeOperation): CREATE or EDIT. Defaults to EDIT
 
     Raises:
         HTTPException: 400 when a required field of the type holds no value
     """
+    required: set[str] = collect_required_field_names(object_type.get_fields())
+    exempt, warned = required_exemptions(request_user, object_data, object_type, required, operation)
     required_top_level, required_by_section = split_required_field_names(
-        collect_required_field_names(object_type.get_fields()),
-        mds_section_field_names(object_type),
+        required - exempt, mds_section_field_names(object_type),
     )
+
+    if warned:
+        top_level, by_section = collect_missing_required_values(object_data, *split_required_field_names(
+            set(warned), mds_section_field_names(object_type)))
+        record_field_warnings(top_level.union(*by_section.values()), warned)
 
     if not required_top_level and not required_by_section:
         return
@@ -967,11 +984,11 @@ def apply_object_insert(
     # Normalise the payload: assign/verify public_id, resolve the type, stamp defaults + version
     new_object_data, object_type = build_new_object_data(objects_manager, payload)
 
-    # A field left empty takes its type's default - before the required and value rules judge it
-    fill_object_defaults(new_object_data, object_type)
+    # The defaults, the write check, then the server's writes - the final state is validated after
+    rule_changes: list[dict[str, Any]] = _check_new_object(request_user, new_object_data, object_type)
 
     # A field the type marks required may not be saved without a value
-    validate_required_object_fields(new_object_data, object_type)
+    validate_required_object_fields(new_object_data, object_type, request_user, ScopeOperation.CREATE)
 
     # No value longer than its field kind allows, none breaking its field's pattern
     validate_object_field_values(new_object_data, object_type)
@@ -981,9 +998,6 @@ def apply_object_insert(
 
     # Creating an IPAM special-type object (or linking a subnet on an interface) needs an IPAM license
     guard_object_write_license(types_manager, request_user, new_object_data)
-
-    # The writer may create objects of the Type and write every field it fills
-    abort_unless_write_allowed(request_user, ScopeOperation.CREATE, None, new_object_data)
 
     # Every feature's write invariants (IPAM, Rack, persons) - also canonicalises values on the candidate
     invariant_error: str | None = enforce_object_write_invariants(
@@ -1050,13 +1064,42 @@ def apply_object_insert(
         sync_select_field_options(request_user, created_instance, object_type)
 
     handle_notify_webhooks(request_user, created_instance, WebhookEventType.CREATE)
-    handle_create_object_log(request_user, created_instance, LogAction.CREATE)
+    handle_create_object_log(request_user, created_instance, LogAction.CREATE, rule_changes=rule_changes)
 
     # Recounted AFTER the insert, so the synced total includes the new object (the pre-insert count in
     # guard_config_item_limit only answers the limit question); hosted cloud only, best-effort, and last
     handle_sync_config_item_count(request_user)
 
     return new_object_id
+
+
+def _check_new_object(request_user: CmdbUser, new_object_data: dict[str, Any],
+                      object_type: CmdbType) -> list[dict[str, Any]]:
+    """
+    The part of a create the access engine judges: the empty fields take their Type's defaults, the writer must be
+    allowed to create the object with every field it fills, then the server writes - the defaults of the ``system``
+    fields (no user's to write, not even through a default) and the Field Rules
+
+    Args:
+        request_user (CmdbUser): The writer
+        new_object_data (dict[str, Any]): The candidate (changed in place)
+        object_type (CmdbType): Its Type
+
+    Raises:
+        HTTPException: 403 when the access engine refuses the create; 400 when a rule's value is invalid
+
+    Returns:
+        list[dict[str, Any]]: What the Field Rules changed
+    """
+    system_fields: set[str] = system_field_names(object_type.get_fields())
+    fill_object_defaults(new_object_data, object_type, skipped=system_fields)
+
+    abort_unless_write_allowed(request_user, ScopeOperation.CREATE, None, new_object_data, object_type)
+
+    if system_fields:
+        fill_object_defaults(new_object_data, object_type, names=system_fields)
+
+    return apply_object_field_rules(request_user, None, new_object_data, object_type)
 
 
 def apply_object_update(
@@ -1075,7 +1118,8 @@ def apply_object_update(
     2. build the candidate (``_build_update_candidate``): server-owned values stamped, the transient
        ``comment`` and ``location_name`` taken off; a candidate that changes the stored active state needs the
        activation right as well (``guard_active_state_change``, 403)
-    3. validate it (``_validate_update_candidate``): fields, required values, value rules, the location
+    3. validate it (``_validate_update_candidate``): fields, the write check, the Field Rules (as the server), then
+       on the final state required values, value rules, the location
        placement, the IPAM licence and every feature's write invariants, the predefined select options -
        all before anything is written
     4. compute the version bump and write
@@ -1149,7 +1193,7 @@ def write_object_update(
     )
     guard_active_state_change(obj_id, target.current_object.active, new_data[CmdbObjectKey.ACTIVE.value], context)
     previous_object: dict[str, Any] = CmdbObject.to_json(target.current_object)
-    location_change: LocationChange | None = _validate_update_candidate(
+    location_change, rule_changes = _validate_update_candidate(
         obj_id, new_data, target.current_type, previous_object, context,
     )
 
@@ -1168,7 +1212,7 @@ def write_object_update(
 
     return WrittenObjectUpdate(
         obj_id, new_data, previous_object, target.current_object, target.current_type, location_change, location_name,
-        update_object_instance, changes, update_comment,
+        update_object_instance, changes, update_comment, rule_changes,
     )
 
 
@@ -1209,7 +1253,7 @@ def finish_object_update(written: WrittenObjectUpdate, context: ObjectWriteConte
     emit_object_update_events(
         context.request_user, context.logs_manager, written.current_object, after_instance,
         written.update_object_instance, written.changes, written.update_comment,
-        shared_lookups=context.render_lookups,
+        shared_lookups=context.render_lookups, rule_changes=written.rule_changes,
     )
     log_active_state_change(context, written.current_object, after_instance)
 
@@ -1270,16 +1314,17 @@ def _validate_update_candidate(
         current_type: CmdbType,
         previous_object: dict[str, Any],
         context: ObjectWriteContext,
-    ) -> LocationChange | None:
+    ) -> tuple[LocationChange | None, list[dict[str, Any]]]:
     """
     Runs every check an update must pass before anything is written
 
     In order: the field names and multi-data sections keep the structure rule (each row-id counter aligned,
-    ``guard_object_structure``), each field has a type (backfilled from the type), no required field is empty, no
+    ``guard_object_structure``), each field has a type (backfilled from the type), the access engine allows the edit
+    with every changed field (``abort_unless_write_allowed``), the Field Rules write their values as the server
+    (``apply_object_field_rules``), then on that final state: no required field is empty, no
     CHANGED value breaks its field's length or pattern, every person selector holds what it may
     (``validate_person_selector_values``), the location placement is allowed (``_prepare_location_change``),
-    the IPAM licence covers an IPAM object or interface change, the access engine allows the edit with every changed
-    field (``abort_unless_write_allowed``), every feature's write invariants hold (which
+    the IPAM licence covers an IPAM object or interface change, every feature's write invariants hold (which
     also canonicalises values on the candidate), and no unknown select value extends a predefined section
     template's field
 
@@ -1295,13 +1340,19 @@ def _validate_update_candidate(
             engine refuses the edit (a changed field the writer may not write)
 
     Returns:
-        LocationChange | None: The placement to mirror after the write, None without a location field
+        tuple[LocationChange | None, list[dict[str, Any]]]: The placement to mirror after the write (None without a
+            location field), and what the Field Rules changed
     """
     guard_object_structure(
         new_data, declared_sections_of(current_type), previous_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value),
     )
     validate_and_fill_object_fields(context.objects_manager, new_data, current_type)
-    validate_required_object_fields(new_data, current_type)
+    # The writer may edit objects of the Type and write every field it changes; then the Field Rules write as the
+    # server, and the final state is validated
+    abort_unless_write_allowed(context.request_user, ScopeOperation.EDIT, previous_object, new_data, current_type)
+    rule_changes: list[dict[str, Any]] = apply_object_field_rules(context.request_user, previous_object, new_data,
+                                                                  current_type)
+    validate_required_object_fields(new_data, current_type, context.request_user)
     validate_object_field_values(new_data, current_type, previous_object)
     validate_person_selector_values(
         context.request_user, context.objects_manager, context.types_manager, new_data, current_type, previous_object,
@@ -1314,8 +1365,6 @@ def _validate_update_candidate(
     guard_object_write_license(
         context.types_manager, context.request_user, new_data, previous_object, object_type=current_type,
     )
-    # The writer may edit objects of the Type and write every field it changes
-    abort_unless_write_allowed(context.request_user, ScopeOperation.EDIT, previous_object, new_data)
 
     if invariant_error := enforce_object_write_invariants(
         context.objects_manager, context.types_manager, new_data, previous_object=previous_object,
@@ -1330,7 +1379,7 @@ def _validate_update_candidate(
         current_type,
     )
 
-    return location_change
+    return location_change, rule_changes
 
 
 def _prepare_location_change(

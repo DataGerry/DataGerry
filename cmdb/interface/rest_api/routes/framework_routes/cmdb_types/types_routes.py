@@ -82,7 +82,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_structure_
     guard_new_identifiers,
     guard_type_structure,
 )
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import guard_created_acl
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import (
+    guard_created_acl,
+    guard_field_protection,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     refused_type_identity,
     verify_type_is_unique,
@@ -276,6 +279,8 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         # The acl decides nothing - access is managed through the access rules: only the default block may be sent,
         # and the default block is stored
         guard_created_acl(data)
+        # A field's class and audit flag are set under Field Protection - a new Type's own fields carry none
+        guard_field_protection(data)
 
         verify_type_is_unique(types_manager, data[TypeSchemaKey.NAME], data.get(TypeSchemaKey.SPECIAL_TYPE))
 

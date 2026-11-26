@@ -48,6 +48,7 @@ from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.utils import parse_import_bool
+from cmdb.framework.access_engine.field_class_lookup import system_field_names
 from cmdb.framework.object_field_value_rules import build_field_value_rules, collect_object_value_errors
 from cmdb.framework.object_field_defaults import fill_entries_from_defaults, usable_default
 from cmdb.framework.object_section_structure import DeclaredSections, align_highest_ids, object_structure_reasons
@@ -382,7 +383,7 @@ def build_import_type_context(
     the required (non-cleared) field names split into top-level and per-MDS-section, and the field
     defaults used to backfill non-provided fields (top-level and per MDS section). A required reference /
     ref-section / location field is excluded from the required sets (its value is cleared on import, so
-    it cannot satisfy a required check).
+    it cannot satisfy a required check), and so is a field of the ``system`` class - whose default is left out too.
 
     Args:
         type_instance (CmdbType): The target ``CmdbType`` being imported into
@@ -397,12 +398,16 @@ def build_import_type_context(
     field_value_rules = build_field_value_rules(type_fields)
     # The default each field may be filled with - None for an excluded kind or a default that breaks the
     # field's own rules (see cmdb.framework.object_field_defaults)
+    # A system field's default is the server's to fill, after the write check (``ObjectImporter._write_refusal``)
+    system_fields: set[str] = system_field_names(type_fields)
     field_defaults = {
-        field.get(FieldKey.NAME.value): usable_default(field, field_value_rules.get(field.get(FieldKey.NAME.value)))
+        field.get(FieldKey.NAME.value): None if field.get(FieldKey.NAME.value) in system_fields else
+        usable_default(field, field_value_rules.get(field.get(FieldKey.NAME.value)))
         for field in type_fields or []
     }
 
-    required_field_names = collect_required_field_names(type_fields, _CLEARABLE_FIELD_TYPES)
+    # A system field is required of no user - the server fills it
+    required_field_names = collect_required_field_names(type_fields, _CLEARABLE_FIELD_TYPES) - system_fields
 
     section_fields = mds_section_field_names(type_instance)
     mds_field_names = set().union(*(set(names) for names in section_fields.values())) if section_fields else set()

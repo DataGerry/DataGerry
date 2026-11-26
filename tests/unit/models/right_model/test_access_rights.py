@@ -25,7 +25,15 @@ import pytest
 
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.right_model.all_rights import ACCESS_RIGHTS, ALL_RIGHTS, ALL_RIGHTS_FLAT, flat_rights_tree
-from cmdb.models.right_model.access_rights import AccessRight, AssignmentRight, FieldClassRight, ScopeRoleRight
+from cmdb.models.right_model.access_rights import (
+    AccessRight,
+    AssignmentRight,
+    FieldClassRight,
+    FieldProtectionRight,
+    FieldRuleRight,
+    AccessHistoryRight,
+    ScopeRoleRight,
+)
 from cmdb.models.right_model.base_right import BaseRight
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -34,9 +42,13 @@ FIELD_CLASS_EDIT: str = 'base.access.fieldclass.edit'
 SCOPE_ROLE_EDIT: str = 'base.access.scoperole.edit'
 ASSIGNMENT_EDIT: str = 'base.access.assignment.edit'
 ASSIGNMENT_DELEGATE: str = 'base.access.assignment.delegate'
-SPECIFIC: list[str] = [VIEW, FIELD_CLASS_EDIT, SCOPE_ROLE_EDIT, ASSIGNMENT_EDIT, ASSIGNMENT_DELEGATE]
-WILDCARDS: list[str] = ['base.access.*', 'base.access.fieldclass.*', 'base.access.scoperole.*',
-                        'base.access.assignment.*']
+FIELD_EDIT: str = 'base.access.field.edit'
+FIELD_RULE_EDIT: str = 'base.access.fieldrule.edit'
+HISTORY_EXPORT: str = 'base.access.history.export'
+SPECIFIC: list[str] = [VIEW, FIELD_CLASS_EDIT, FIELD_EDIT, FIELD_RULE_EDIT, HISTORY_EXPORT, SCOPE_ROLE_EDIT,
+                       ASSIGNMENT_EDIT, ASSIGNMENT_DELEGATE]
+WILDCARDS: list[str] = ['base.access.*', 'base.access.fieldclass.*', 'base.access.field.*', 'base.access.fieldrule.*',
+                        'base.access.history.*', 'base.access.scoperole.*', 'base.access.assignment.*']
 GROUP_ID: int = 7
 GROUP_NAME: str = 'access-right-group'
 
@@ -57,7 +69,7 @@ class TestTheCatalogue:
     """Where the rights sit and how they are named."""
 
     def test_the_branch_holds_exactly_these_rights(self) -> None:
-        """Five rights and four wildcards"""
+        """Eight rights and seven wildcards"""
         assert sorted(right.name for right in flat_rights_tree(ACCESS_RIGHTS)) == sorted(SPECIFIC + WILDCARDS)
 
     def test_the_branch_is_part_of_the_catalogue(self) -> None:
@@ -71,6 +83,9 @@ class TestTheCatalogue:
         (SCOPE_ROLE_EDIT, ScopeRoleRight, 'scoperole.edit'),
         (ASSIGNMENT_EDIT, AssignmentRight, 'assignment.edit'),
         (ASSIGNMENT_DELEGATE, AssignmentRight, 'assignment.delegate'),
+        (FIELD_EDIT, FieldProtectionRight, 'field.edit'),
+        (FIELD_RULE_EDIT, FieldRuleRight, 'fieldrule.edit'),
+        (HISTORY_EXPORT, AccessHistoryRight, 'history.export'),
     ])
     def test_the_family_names_and_labels_each_right(self, name: str, family: type, label: str) -> None:
         """Built name-first from its family; every right describes what it unlocks"""
