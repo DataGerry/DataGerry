@@ -14,7 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-A type write may carry its ``acl`` only unchanged - access is managed through the access rules
+A type write may carry its ``acl`` only unchanged - access is managed through the access rules; and its fields' class
+and audit flag only as stored - the Field Protection routes set them (phase 12, ``guard_field_protection``)
 
 The stored ``acl`` decides nothing since the access engine does, and every answer shows the block the access rules
 decide (``types_operations_helper.with_synthesised_acl``). A client sending a Type back (the type builder sends the
@@ -32,6 +33,7 @@ from typing import Any
 from flask import abort
 
 from cmdb.framework.access_engine import synthesised_acl_values
+from cmdb.framework.access_rules.field_protection_rules import protection_problems, template_owned_field_names
 from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
@@ -43,7 +45,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = ['acl_meaning', 'guard_created_acl', 'guard_updated_acl']
+__all__ = ['acl_meaning', 'guard_created_acl', 'guard_updated_acl', 'guard_field_protection']
 
 AclMeaning = tuple[bool, dict[int, frozenset[str]]]
 
@@ -112,3 +114,22 @@ def guard_updated_acl(data: dict[str, Any], old_type: CmdbType, request_user: Cm
         abort_if_acl_changed(data, answered)
 
     data[TypeSchemaKey.ACL.value] = AccessControlList.to_json(old_type.acl)
+
+
+def guard_field_protection(data: dict[str, Any], old_type: CmdbType | None = None) -> None:
+    """
+    Accepts the field classes and audit flags of a type write only as stored, then keeps the stored ones (phase 12)
+
+    Args:
+        data (dict[str, Any]): The type payload after the template reconciliation, changed in place
+        old_type (CmdbType | None): The stored Type; None for a create
+
+    Raises:
+        HTTPException: 400 naming each field sending another class or flag than stored
+    """
+    problems: list[str] = protection_problems(data.get(TypeSchemaKey.FIELDS.value) or [],
+                                              old_type.get_fields() if old_type is not None else [],
+                                              template_owned_field_names(data))
+
+    if problems:
+        abort(400, ' '.join(problems))

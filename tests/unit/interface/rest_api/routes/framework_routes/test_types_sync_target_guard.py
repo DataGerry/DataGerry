@@ -108,7 +108,8 @@ def test_the_put_route_asks_the_guard() -> None:
                         guard_mds_section_identifier_change=MagicMock(), guard_location_field_removal=MagicMock(),
                         guard_referenced_section_removal=MagicMock(), guard_selectable_as_parent_change=MagicMock(),
                         guard_uses_ports_change=MagicMock(), guard_person_selector_narrowing=MagicMock(),
-                        guard_sync_target_change=sync_guard, guard_scope_field_change=MagicMock()):
+                        guard_sync_target_change=sync_guard, guard_scope_field_change=MagicMock(),
+                        guard_rule_field_change=MagicMock()):
         types_update_helper.guard_type_update_changes(USER, old_type, new_type, None)
 
     sync_guard.assert_called_once_with(USER, new_type)

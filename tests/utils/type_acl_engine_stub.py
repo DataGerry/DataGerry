@@ -25,8 +25,8 @@ caller is under test. A Type not registered is unrestricted.
 
 ``decide_without_assignments(monkeypatch)`` lets the engine's own reads - ``can()`` (the object write check) and
 ``allowed_operation_values`` (a Type answer's ``allowed_operations``) - run without a database: no assignment exists, so
-every Type is unrestricted, every operation allowed and every field writable. For unit tests whose subject is not
-access (the write funnels, the importer, the render, the Type routes)
+every Type is unrestricted, every operation allowed and every field writable, and no Field Rule is stored. For unit
+tests whose subject is not access (the write funnels, the importer, the render, the Type routes)
 """
 from collections.abc import Iterable, Mapping
 from types import SimpleNamespace
@@ -47,7 +47,8 @@ from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.security.acl.helpers import acl_grants_access
-from cmdb.interface.rest_api.routes.access_routes import access_scope_guard
+from cmdb.framework.field_rules import rule_reads
+from cmdb.interface.rest_api.routes.access_routes import access_scope_guard, field_rule_guard
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -114,18 +115,23 @@ def decide_without_assignments(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     no_assignments: AccessGrants = build_grants([], [], [])
     monkeypatch.setattr(access_decision, 'load_grants', lambda _user: no_assignments)
+    # No Type read for field classes either - the stubbed Types carry none
+    monkeypatch.setattr(access_decision, 'type_field_classes', lambda _user, _type_id: {})
     monkeypatch.setattr(access_filters, 'load_grants', lambda _user: no_assignments)
     monkeypatch.setattr(access_filters, 'load_access_rules', lambda _user: ([], []))
+    # No Field Rule either - the write funnels and the importer run none
+    monkeypatch.setattr(rule_reads, 'load_active_rules', lambda _user: [])
     no_conditional_assignments(monkeypatch)
 
 
 def no_conditional_assignments(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    Makes the stale-scope guards (``access_scope_guard``) read no conditional assignment - nothing to judge, nothing
-    more read
+    Makes the stale-scope guards (``access_scope_guard``) read no conditional assignment and the Field Rule guards
+    (``field_rule_guard``) no rule - nothing to judge, nothing more read
 
     Args:
         monkeypatch (pytest.MonkeyPatch): The test's monkeypatch
     """
     monkeypatch.setattr(access_scope_guard, '_conditional_assignments', lambda _user: [])
+    monkeypatch.setattr(field_rule_guard, '_stored_rules', lambda _user: [])
 

@@ -130,6 +130,7 @@ class WrittenObjectUpdate:
         update_object_instance (CmdbObject): The written candidate as a CmdbObject, with its new version
         changes (dict[str, Any]): The field-level diff the version bump was computed from
         update_comment (str): The edit log's comment, '' when none
+        rule_changes (list[dict[str, Any]]): What the Field Rules changed - the edit log records it
     """
     obj_id: int
     new_data: dict[str, Any]
@@ -141,3 +142,4 @@ class WrittenObjectUpdate:
     update_object_instance: CmdbObject
     changes: dict[str, Any]
     update_comment: str
+    rule_changes: list[dict[str, Any]] = field(default_factory=list)

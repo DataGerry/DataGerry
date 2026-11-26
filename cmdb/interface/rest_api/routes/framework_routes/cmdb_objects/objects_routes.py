@@ -78,6 +78,7 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     fetch_only_active_objects,
     request_wants_body,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_field_warnings import with_field_warnings
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_person_selector_helper import (
     build_person_picker_payload,
     selectable_target_ids,
@@ -216,7 +217,7 @@ def insert_cmdb_object(data: dict[str, Any], request_user: CmdbUser) -> Response
             data, request_user, objects_manager, types_manager, port_clone_source,
         )
 
-        return DefaultResponse(new_object_id).make_response()
+        return with_field_warnings(DefaultResponse(new_object_id).make_response())
     except ObjectsManagerInsertError as err:
         abort_if_too_large(err)
         LOGGER.error("[insert_cmdb_object] ObjectsManagerInsertError: %s", err, exc_info=True)
@@ -804,7 +805,7 @@ def update_cmdb_object(public_id: int, data: dict[str, Any], request_user: CmdbU
             object_ids, complete_put_payload(data, len(object_ids) > 1), active_state, context,
         )
 
-        return UpdateMultiResponse(results=results).make_response()
+        return with_field_warnings(UpdateMultiResponse(results=results).make_response())
     except ObjectsManagerGetError as err:
         LOGGER.error("[update_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
@@ -871,7 +872,7 @@ def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         # The merged payload is a complete object, so it runs the shared full-update pipeline
         result: dict[str, Any] = apply_object_update(public_id, merged_data, None, context)
 
-        return UpdateSingleResponse(result).make_response()
+        return with_field_warnings(UpdateSingleResponse(result).make_response())
     except ObjectsManagerGetError as err:
         LOGGER.error("[patch_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
@@ -921,7 +922,7 @@ def patch_cmdb_objects(request_user: CmdbUser) -> Response:
             object_ids, bulk_patch_payload(patch_data), patch_data.get(CmdbObjectKey.ACTIVE.value), context,
         )
 
-        return UpdateMultiResponse(results=results).make_response()
+        return with_field_warnings(UpdateMultiResponse(results=results).make_response())
     except ObjectsManagerGetError as err:
         LOGGER.error("[patch_cmdb_objects] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Objects from the database!")

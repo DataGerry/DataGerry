@@ -97,6 +97,33 @@ ASSIGNMENT_ROLE_INDEX_NAME: str = 'role_id_public_id'
 # The name of the index storing one group, role and scope once
 ASSIGNMENT_UNIQUE_INDEX_NAME: str = 'group_role_scope'
 
+class FieldRuleKey(BaseStrEnum):
+    """
+    Keys of a stored Field Rule - fields the server sets when a user's write changes other fields
+
+    Attributes:
+        PUBLIC_ID: The rule's public_id - also the order rules run in
+        NAME: Its identifier - a slug, unique and immutable
+        DESCRIPTION: What the rule is for
+        ACTIVE: Whether it runs
+        TYPES: ``ALL_TYPES`` or the public_ids of the CmdbTypes it applies to
+        WHEN: The trigger - what the user's change must touch
+        UNLESS: The exception - when the user's change also touches this, the rule does not run; optional
+        SET: The values it writes, by field name
+    """
+    PUBLIC_ID = 'public_id'
+    NAME = 'name'
+    DESCRIPTION = 'description'
+    ACTIVE = 'active'
+    TYPES = 'types'
+    WHEN = 'when'
+    UNLESS = 'unless'
+    SET = 'set'
+
+
+# The most fields one Field Rule may set
+MAX_RULE_SET_FIELDS: int = 100
+
 # The longest scope role name
 NAME_MAX_LENGTH: int = 255
 

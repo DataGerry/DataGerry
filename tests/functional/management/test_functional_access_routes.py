@@ -346,7 +346,7 @@ class TestReferenceRules:
         role: dict[str, Any] = _created(rest_api, ROLES_URL, {**ROLE, 'field_classes': [CLASS['name']]})
 
         usage = rest_api.get(f'{CLASSES_URL}/{class_id}/usage')
-        assert usage.get_json()['result'] == {'scope_roles': [role]}
+        assert usage.get_json()['result'] == {'scope_roles': [role], 'fields': []}
 
         refused = rest_api.delete(f'{CLASSES_URL}/{class_id}')
         assert (refused.status_code, _message(refused)) == (HTTPStatus.BAD_REQUEST, AccessRuleMessage.FIELD_CLASS_IN_USE
@@ -354,7 +354,7 @@ class TestReferenceRules:
                                                                           role_ids=[role['public_id']]))
 
         rest_api.put(f"{ROLES_URL}/{role['public_id']}", json={'field_classes': []})
-        assert rest_api.get(f'{CLASSES_URL}/{class_id}/usage').get_json()['result'] == {'scope_roles': []}
+        assert rest_api.get(f'{CLASSES_URL}/{class_id}/usage').get_json()['result'] == {'scope_roles': [], 'fields': []}
         assert rest_api.delete(f'{CLASSES_URL}/{class_id}').status_code == HTTPStatus.ACCEPTED
 
     def test_an_assigned_role_stays_and_its_usage_names_the_assignment(self, rest_api) -> None:

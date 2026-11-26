@@ -35,6 +35,7 @@ kept honest by a test instead: every entry shape the writer produces must valida
 * ``changes`` depends on the action: the field diff ``{'old': [...], 'new': [...]}`` on EDIT - plus
   ``multi_data_sections: {'old': [...], 'new': [...]}`` when a multi-data section changed - ``{'old': bool,
   'new': bool}`` on ACTIVE_CHANGE, and ``[]`` on CREATE and DELETE, which record none
+* ``rule_changes``, only on a CREATE or EDIT a Field Rule changed: ``[{rule_id, rule_name, field, before, after}]``
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -98,6 +99,19 @@ def get_cmdb_object_log_schema() -> dict[str, Any]:
         'changes': {  # EDIT: the field diff; ACTIVE_CHANGE: {'old': bool, 'new': bool}; CREATE / DELETE: []
             'type': ['dict', 'list'],
             'default': [],
+        },
+        'rule_changes': {  # CREATE / EDIT a Field Rule changed: one entry per value a rule wrote
+            'type': 'list',
+            'schema': {
+                'type': 'dict',
+                'schema': {
+                    'rule_id': {'type': 'integer', 'required': True},
+                    'rule_name': {'type': 'string', 'required': True},
+                    'field': {'type': 'string', 'required': True},
+                    'before': {'nullable': True, 'required': True},
+                    'after': {'nullable': True, 'required': True},
+                },
+            },
         },
         'comment': {  # The comment the write path records (an ObjectLogComment, or the user's edit comment)
             'type': 'string',

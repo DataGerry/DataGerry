@@ -44,6 +44,8 @@ from cmdb.manager.object_groups_manager import ObjectGroupsManager
 from cmdb.manager.user_settings_manager import UserSettingsManager
 from cmdb.manager.ci_explorer_profile_manager import CiExplorerProfileManager
 from cmdb.manager.field_classes_manager import FieldClassesManager
+from cmdb.manager.field_rules_manager import FieldRulesManager
+from cmdb.manager.access_history_manager import AccessHistoryManager
 from cmdb.manager.scope_roles_manager import ScopeRolesManager
 from cmdb.manager.access_assignments_manager import AccessAssignmentsManager
 
@@ -87,6 +89,8 @@ __all__: list[str] = [
     'CategoriesManager',
     'CiExplorerProfileManager',
     'FieldClassesManager',
+    'FieldRulesManager',
+    'AccessHistoryManager',
     'ScopeRolesManager',
     'AccessAssignmentsManager',
     'DocapiTemplatesManager',

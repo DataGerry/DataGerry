@@ -387,7 +387,8 @@ def _register_user_management(app: BaseCmdbApp) -> None:
 def _register_access(app: BaseCmdbApp) -> None:
     """
     Mounts the access rules: field classes, scope roles and assignments under ``/access``, the type ACL
-    migration report, the assignments of one Type and the scope builder's catalogue
+    migration report, the assignments of one Type, the scope builder's catalogue, the field protection, the
+    Field Rules, the explanations and the change history
 
     Not licence-gated - every edition carries them
 
@@ -401,6 +402,10 @@ def _register_access(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.access_routes.migration_report_routes import migration_report_blueprint
     from cmdb.interface.rest_api.routes.access_routes.type_assignment_routes import access_types_blueprint
     from cmdb.interface.rest_api.routes.access_routes.scope_catalogue_routes import scope_catalogue_blueprint
+    from cmdb.interface.rest_api.routes.access_routes.field_protection_routes import field_protection_blueprint
+    from cmdb.interface.rest_api.routes.access_routes.field_rule_routes import field_rules_blueprint
+    from cmdb.interface.rest_api.routes.access_routes.explain_routes import explain_blueprint
+    from cmdb.interface.rest_api.routes.access_routes.history_routes import access_history_blueprint
 
     app.register_blueprint(field_classes_blueprint, url_prefix='/access/field_classes')
     app.register_blueprint(scope_roles_blueprint, url_prefix='/access/scope_roles')
@@ -408,6 +413,10 @@ def _register_access(app: BaseCmdbApp) -> None:
     app.register_blueprint(migration_report_blueprint, url_prefix='/access/migration_report')
     app.register_blueprint(access_types_blueprint, url_prefix='/access/types')
     app.register_blueprint(scope_catalogue_blueprint, url_prefix='/access/scope_catalogue')
+    app.register_blueprint(field_protection_blueprint, url_prefix='/access/field_protection')
+    app.register_blueprint(field_rules_blueprint, url_prefix='/access/field_rules')
+    app.register_blueprint(explain_blueprint, url_prefix='/access')
+    app.register_blueprint(access_history_blueprint, url_prefix='/access/history')
 
 def _register_import_export(app: BaseCmdbApp) -> None:
     """

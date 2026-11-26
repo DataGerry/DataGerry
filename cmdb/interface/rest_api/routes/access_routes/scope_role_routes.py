@@ -33,8 +33,15 @@ from cmdb.framework.access_rules import AccessRuleMessage, scope_role_in_use
 from cmdb.interface.rest_api.routes.access_routes.access_change_guard import guard_role_update
 from cmdb.interface.rest_api.routes.access_routes.access_delegation import delegable_role_ids
 from cmdb.interface.rest_api.routes.access_routes.access_scope_guard import guard_role_scope_change
+from cmdb.interface.rest_api.routes.access_routes.field_rule_guard import guard_role_rule_change
 from cmdb.interface.rest_api.routes.access_routes.access_payloads import abort_if_beyond_own_reach, scope_role_payload
+from cmdb.models.access_model import HistoryKind
 from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.rest_api.routes.access_routes.access_history_helper import (
+    ChangeContext,
+    query_comment,
+    take_comment,
+)
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import GetSingleResponse
@@ -139,10 +146,11 @@ def create_scope_role(data: dict[str, Any], request_user: CmdbUser) -> Response:
     Returns:
         InsertSingleResponse: 201 with the stored scope role and its public_id
     """
+    change: ChangeContext = ChangeContext(request_user, HistoryKind.SCOPE_ROLE, take_comment(data))
     manager: ScopeRolesManager = _manager(request_user)
     payload: dict[str, Any] = _judged(manager, request_user, data)
 
-    return create_response(manager, CmdbScopeRole, payload, _name_taken(payload))
+    return create_response(manager, CmdbScopeRole, payload, _name_taken(payload), change)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -252,6 +260,7 @@ def update_scope_role(public_id: int, data: dict[str, Any], request_user: CmdbUs
     Returns:
         UpdateSingleResponse: 202 with the scope role as stored
     """
+    change: ChangeContext = ChangeContext(request_user, HistoryKind.SCOPE_ROLE, take_comment(data))
     manager: ScopeRolesManager = _manager(request_user)
     stored: dict[str, Any] = load_or_404(manager, public_id, LABEL)
     payload: dict[str, Any] = _judged(manager, request_user, keep_omitted_keys(data, stored), public_id, data)
@@ -261,8 +270,9 @@ def update_scope_role(public_id: int, data: dict[str, Any], request_user: CmdbUs
     abort_if_beyond_own_reach(request_user, public_id, payload, holders)
     guard_role_update(request_user, public_id, payload)
     guard_role_scope_change(request_user, public_id, payload)
+    guard_role_rule_change(request_user, public_id, payload)
 
-    return update_response(manager, CmdbScopeRole, public_id, payload, _name_taken(payload))
+    return update_response(manager, CmdbScopeRole, public_id, payload, _name_taken(payload), change, stored)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -285,9 +295,10 @@ def delete_scope_role(public_id: int, request_user: CmdbUser) -> Response:
     Returns:
         DeleteSingleResponse: 202 with the scope role as it was stored
     """
+    change: ChangeContext = ChangeContext(request_user, HistoryKind.SCOPE_ROLE, query_comment())
     manager: ScopeRolesManager = _manager(request_user)
     stored: dict[str, Any] = load_or_404(manager, public_id, LABEL)
     assignments: AccessAssignmentsManager = ManagerProvider.get_manager(ManagerType.ACCESS_ASSIGNMENTS, request_user)
     abort_on_problems([scope_role_in_use(assignments, public_id)])
 
-    return delete_response(manager, stored)
+    return delete_response(manager, stored, change)

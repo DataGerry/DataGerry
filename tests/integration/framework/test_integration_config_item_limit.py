@@ -145,6 +145,7 @@ def _importer(database_manager: MongoDatabaseManager, limit: int, overwrite: boo
     importer.target_type = None
     importer._object_count = None  # pylint: disable=protected-access
     importer._types = {}  # pylint: disable=protected-access
+    importer._rule_changes = {}  # pylint: disable=protected-access
     importer.get_config = lambda: SimpleNamespace(start_element=0, max_elements=0, overwrite_public=overwrite)
 
     return importer

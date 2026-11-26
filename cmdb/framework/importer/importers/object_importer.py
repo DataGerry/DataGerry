@@ -29,6 +29,9 @@ from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.section_templates_manager import SectionTemplatesManager
 
 from cmdb.framework.access_engine import can, refusal_message
+from cmdb.framework.field_rules import RuleApplication, run_field_rules
+from cmdb.framework.access_engine.field_class_lookup import system_field_names
+from cmdb.framework.object_field_defaults import fill_object_defaults
 from cmdb.models.access_model import ScopeOperation
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import (
@@ -144,6 +147,8 @@ class ObjectImporter(BaseImporter):
         self._object_count: int | None = None
         # The types other than the target type this import read, by public_id - see `_known_type`
         self._types: dict[Any, CmdbType | None] = {}
+        # What the Field Rules changed on each candidate written, by the candidate's identity - see `_write_refusal`
+        self._rule_changes: dict[int, list[dict[str, Any]]] = {}
 
         super().__init__(file=file, file_type=file_type, config=config)
 
@@ -458,20 +463,58 @@ class ObjectImporter(BaseImporter):
     def _write_refusal(self, operation: ScopeOperation, before: dict[str, Any] | None,
                        after: dict[str, Any]) -> str | None:
         """
-        Why the access engine refuses the importer this object write - the Type, or a field it may not write
+        Why the access engine refuses the importer this object write - the Type, or a field it may not write. A write
+        it allows gets, as the server, the defaults of its system fields on a create, then the Field Rules; a value a
+        rule would write invalid refuses it too. What they changed is kept for the object log (``_rule_changes_of``)
 
         Args:
             operation (ScopeOperation): CREATE or EDIT
             before (dict[str, Any] | None): The stored object; None for a create
-            after (dict[str, Any]): The object as it would be stored
+            after (dict[str, Any]): The object as it would be stored - the rules' values are written into it
 
         Raises:
             AccessAssignmentsManagerGetError | ScopeRolesManagerGetError: When the importer's grants could not be read
+            FieldRulesManagerGetError | ObjectsManagerGetTypeError: When the rules or the Type could not be read
 
         Returns:
             str | None: The refusal, or None when the write is allowed
         """
-        return refusal_message(can(self.request_user, operation, before, after))
+        if refusal := refusal_message(can(self.request_user, operation, before, after)):
+            return refusal
+
+        object_type: CmdbType | None = self._known_type(after.get(CmdbObjectKey.TYPE_ID.value))
+
+        if object_type is None:
+            return None
+
+        system_fields: set[str] = system_field_names(object_type.get_fields())
+
+        # A new object's system fields take their defaults now - as the server, past the check
+        if operation == ScopeOperation.CREATE and system_fields:
+            fill_object_defaults(after, object_type, names=system_fields)
+
+        application: RuleApplication = run_field_rules(self.request_user, before, after, object_type.get_fields() or [],
+                                                       object_type.get_all_mds_fields())
+
+        if application.problems:
+            return ' '.join(application.problems)
+
+        self._rule_changes[id(after)] = application.changes
+
+        return None
+
+
+    def _rule_changes_of(self, candidate: dict[str, Any]) -> list[dict[str, Any]] | None:
+        """
+        What the Field Rules changed on a written candidate
+
+        Args:
+            candidate (dict[str, Any]): The candidate as written
+
+        Returns:
+            list[dict[str, Any]] | None: The changes, None when no rule ran on it
+        """
+        return self._rule_changes.get(id(candidate))
 
 
     def _person_selector_refusal(self, candidate: dict[str, Any], type_context: ImportTypeContext | None) -> str | None:
@@ -634,7 +677,8 @@ class ObjectImporter(BaseImporter):
 
         stored[imported_public_id] = current_import_object
 
-        return ImportSuccessMessage(public_id=imported_public_id, obj=current_import_object), None
+        return ImportSuccessMessage(public_id=imported_public_id, obj=current_import_object,
+                                    rule_changes=self._rule_changes_of(current_import_object)), None
 
 
     def _overwrite_row(
@@ -703,7 +747,8 @@ class ObjectImporter(BaseImporter):
 
         stored[public_id] = replacement
 
-        return ImportSuccessMessage(public_id=public_id, obj=replacement, changes=changes), None
+        return ImportSuccessMessage(public_id=public_id, obj=replacement, changes=changes,
+                                    rule_changes=self._rule_changes_of(replacement)), None
 
 
     def _known_type(self, type_id: Any) -> CmdbType | None:
@@ -881,6 +926,7 @@ class ObjectImporter(BaseImporter):
             else:
                 outcomes[row] = (ImportSuccessMessage(
                     public_id=current_import_object[CmdbObjectKey.PUBLIC_ID.value], obj=current_import_object,
+                    rule_changes=self._rule_changes_of(current_import_object),
                 ), None)
 
 
@@ -951,7 +997,8 @@ class ObjectImporter(BaseImporter):
 
         current_import_object[CmdbObjectKey.PUBLIC_ID.value] = public_id
 
-        return ImportSuccessMessage(public_id=public_id, obj=current_import_object), None
+        return ImportSuccessMessage(public_id=public_id, obj=current_import_object,
+                                    rule_changes=self._rule_changes_of(current_import_object)), None
 
 
     def start_import(self) -> ImporterObjectResponse:

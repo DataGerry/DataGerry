@@ -27,7 +27,7 @@ from werkzeug.datastructures import FileStorage
 from werkzeug.wrappers import Request
 
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.utils import Builder, find_cause, str_to_bool
+from cmdb.utils import Builder, coerce_whole_number, find_cause, str_to_bool
 from cmdb.errors.database import DocumentDuplicateKeyError
 from cmdb.framework.write_ledger import LedgerResidue, WriteLedger
 from cmdb.models.cmdb_dao import CmdbDAO
@@ -60,6 +60,7 @@ PUBLIC_ID_LIST_NOT_A_LIST_MSG: str = "The public_ids have to be sent as a list, 
 
 # Refusal (HTTP 400) of a boolean query parameter spelled anything but true / false
 BOOLEAN_PARAM_INVALID_MSG: str = "The '{param}' parameter must be 'true' or 'false'!"
+ID_QUERY_PARAM_MESSAGE: str = "The '{name}' parameter must be an id - a whole number from 1, not '{value}'!"
 
 # The query flag asking a list to leave inactive objects out - the frontend sends its 'only active objects' toggle
 ONLY_ACTIVE_OBJECTS_PARAM: str = 'onlyActiveObjCookie'
@@ -131,6 +132,32 @@ def read_boolean_query_param(name: str, default: bool) -> bool:
         bool: The flag
     """
     return read_boolean_value(name, request.args.get(name), default)
+
+
+def read_id_query_param(name: str) -> int | None:
+    """
+    Reads an optional id query parameter - absent is None, present it must be a whole number from 1
+
+    Args:
+        name (str): The query parameter's name
+
+    Raises:
+        HTTPException: 400 naming the parameter when it is no id
+
+    Returns:
+        int | None: The id, or None when the parameter is absent
+    """
+    raw: str | None = request.args.get(name)
+
+    if raw is None:
+        return None
+
+    value: int | None = coerce_whole_number(raw)
+
+    if value is None or value < 1:
+        abort(400, ID_QUERY_PARAM_MESSAGE.format(name=name, value=raw))
+
+    return value
 
 
 def read_boolean_value(name: str, value: Any, default: bool) -> bool:

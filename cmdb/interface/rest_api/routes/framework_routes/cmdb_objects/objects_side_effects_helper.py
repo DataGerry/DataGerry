@@ -192,6 +192,7 @@ def build_object_log_data(
         comment: str,
         render_result: RenderResult,
         changes: Any = None,
+        rule_changes: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
     """
     Builds the entry a CmdbObjectLog stores for one change of a CmdbObject
@@ -202,9 +203,11 @@ def build_object_log_data(
         version (str): The object's version the entry records
         comment (str): The comment stored on the entry
         render_result (RenderResult): The object as rendered - the log view draws it with the renderer, and
-            its type information names the type the entry is stamped with; the writer's ``allowed_operations`` are
-            left out of the stored snapshot
+            its type information names the type the entry is stamped with; the writer's ``allowed_operations`` and
+            ``field_access`` are left out of the stored snapshot
         changes (Any): The field-level diff, or None when the action records none. Defaults to None
+        rule_changes (list[dict[str, Any]] | None): What the Field Rules changed on the write - stored only when
+            not empty. Defaults to None
 
     Returns:
         dict[str, Any]: The keyword arguments `LogsManager.insert_log` stores
@@ -212,7 +215,8 @@ def build_object_log_data(
     # The snapshot is the object, not what its writer may do - a reader of the log is someone else
     snapshot: RenderResult = copy.copy(render_result)
     snapshot.type_information = {key: value for key, value in render_result.type_information.items()
-                                 if key != RenderTypeInfoKey.ALLOWED_OPERATIONS.value}
+                                 if key not in (RenderTypeInfoKey.ALLOWED_OPERATIONS.value,
+                                                RenderTypeInfoKey.FIELD_ACCESS.value)}
 
     log_data: dict[str, Any] = {
         ObjectLogKey.OBJECT_ID.value: object_id,
@@ -227,6 +231,9 @@ def build_object_log_data(
 
     if changes is not None:
         log_data[ObjectLogKey.CHANGES.value] = changes
+
+    if rule_changes:
+        log_data[ObjectLogKey.RULE_CHANGES.value] = rule_changes
 
     return log_data
 
@@ -298,6 +305,7 @@ def log_object_change(
         version: str | None = None,
         changes: Any = None,
         shared_lookups: RenderLookups | None = None,
+        rule_changes: list[dict[str, Any]] | None = None,
     ) -> bool:
     """
     Renders a CmdbObject and writes its change-log entry, best-effort
@@ -315,6 +323,7 @@ def log_object_change(
         version (str | None): The version to record; the rendered object's own when None
         changes (Any): The field-level diff, or None. Defaults to None
         shared_lookups (RenderLookups | None): The render lookups of the request (``render_single_object``)
+        rule_changes (list[dict[str, Any]] | None): What the Field Rules changed on the write. Defaults to None
 
     Returns:
         bool: True when the entry was written
@@ -332,7 +341,7 @@ def log_object_change(
         recorded_version: str = version or render_result.object_information['version']
 
         log_data: dict[str, Any] = build_object_log_data(
-            request_user, object_id, recorded_version, comment, render_result, changes,
+            request_user, object_id, recorded_version, comment, render_result, changes, rule_changes,
         )
     except Exception:  # pylint: disable=broad-exception-caught
         report_lost_object_log(action, object_id, 'the log entry could not be built', with_traceback=True)
@@ -347,6 +356,7 @@ def handle_create_object_log(
         target_object: CmdbObject,
         log_action: LogAction,
         shared_lookups: RenderLookups | None = None,
+        rule_changes: list[dict[str, Any]] | None = None,
     ) -> None:
     """
     Writes a CmdbObjectLog entry for a created or deleted CmdbObject
@@ -359,6 +369,7 @@ def handle_create_object_log(
         target_object (CmdbObject): The CmdbObject the log entry is about
         log_action (LogAction): The log action to record (CREATE or DELETE)
         shared_lookups (RenderLookups | None): The render lookups of the request - a bulk delete shares one
+        rule_changes (list[dict[str, Any]] | None): What the Field Rules changed on a create. Defaults to None
     """
     comment: str = ObjectLogComment.DELETED.value if log_action == LogAction.DELETE else ObjectLogComment.CREATED.value
 
@@ -371,7 +382,8 @@ def handle_create_object_log(
 
         return
 
-    log_object_change(request_user, logs_manager, log_action, target_object, comment, shared_lookups=shared_lookups)
+    log_object_change(request_user, logs_manager, log_action, target_object, comment, shared_lookups=shared_lookups,
+                      rule_changes=rule_changes)
 
 
 def handle_delete_object_location(
@@ -623,6 +635,7 @@ def emit_object_update_events(
         update_comment: str,
         *,
         shared_lookups: RenderLookups | None = None,
+        rule_changes: list[dict[str, Any]] | None = None,
     ) -> None:
     """
     Emits the UPDATE webhook and writes the edit log for an updated CmdbObject
@@ -640,6 +653,7 @@ def emit_object_update_events(
         update_comment (str): The user-supplied comment stored on the edit log
         shared_lookups (RenderLookups | None): The render lookups of the request - the targets of a bulk update
             share one
+        rule_changes (list[dict[str, Any]] | None): What the Field Rules changed on the write - on the edit log
     """
     # send_webhook_event swallows its own failures; what is left to catch here is the payload's serialisation
     try:
@@ -656,6 +670,7 @@ def emit_object_update_events(
     log_object_change(
         request_user, logs_manager, LogAction.EDIT, after_object, update_comment,
         version=updated_object.get_version(), changes=changes, shared_lookups=shared_lookups,
+        rule_changes=rule_changes,
     )
 
 

@@ -46,6 +46,8 @@ from cmdb.manager import (
 from cmdb.framework.results import IterationResult
 from cmdb.framework.write_ledger import WriteLedger
 from cmdb.framework.access_rules import delete_group_assignments
+from cmdb.models.access_model import AccessAssignmentKey, HistoryAction, HistoryKind, HistorySource
+from cmdb.interface.rest_api.routes.access_routes.access_history_helper import ChangeContext, record_changes
 from cmdb.framework.person_sync.sync_engine import (
     SyncContext,
     SyncResult,
@@ -564,8 +566,12 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
             # Every member loses the group; the action decides about those whose only group it is
             redistribute_members(ledger, (users_manager, settings_manager), public_id, params.action, params.group_id)
 
-            # Its access assignments grant to no one once it is gone
+            # Its access assignments grant to no one once it is gone - each recorded in the access change history
+            priors: list[dict[str, Any]] = assignments_manager.assignments_of_group(public_id)
             deleted_assignments.append(delete_group_assignments(ledger, assignments_manager, public_id))
+            record_changes(ChangeContext(request_user, HistoryKind.ASSIGNMENT, source=HistorySource.GROUP_DELETE),
+                           [(HistoryAction.DELETE, prior[AccessAssignmentKey.PUBLIC_ID.value], prior, None,
+                             [public_id]) for prior in priors], ledger)
 
             ledger.deleted(groups_manager, public_id, group_snapshot)
             groups_manager.delete_group(public_id)

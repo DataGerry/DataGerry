@@ -70,6 +70,7 @@ PAYLOAD_RULES: list[str] = [
     'guard_field_patterns',
     'guard_field_defaults',
     'guard_updated_acl',
+    'guard_field_protection',
 ]
 
 # The guards guard_type_update_changes runs after the SpecialType check, in its order
@@ -82,6 +83,7 @@ CHANGE_GUARDS: list[str] = [
     'guard_uses_ports_change',
     'guard_person_selector_narrowing',
     'guard_scope_field_change',
+    'guard_rule_field_change',
 ]
 
 
@@ -150,6 +152,7 @@ class TestPrepareTypeUpdatePayload:
             call.guard_field_patterns(data, old_type),
             call.guard_field_defaults(data),
             call.guard_updated_acl(data, old_type, user),
+            call.guard_field_protection(data, old_type),
         ]
 
     @pytest.mark.parametrize('refusing_rule', PAYLOAD_RULES)

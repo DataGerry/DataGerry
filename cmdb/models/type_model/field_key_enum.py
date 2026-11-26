@@ -37,6 +37,10 @@ class FieldKey(BaseStrEnum):
     a stored type's select carries. It tells the frontend which list to load and to extend through
     `POST /rest/extendable_options/`; no stored CmdbType field ever has it
 
+    PROTECTION names the field class the field carries (a ``access.fieldClasses`` name, or the fixed ``system``): only
+    a scope role granting that class writes it. AUDIT_RELEVANT flags a field Field Rules react to. Both are set through
+    the Field Protection routes only - a type or template write keeps the stored values
+
     SELECTABLE and MULTIPLE only appear on a `FieldType.PERSON` field: SELECTABLE lists the SpecialTypes whose
     objects may be selected (PERSON and / or PERSON_GROUP), MULTIPLE whether the value is a list of ids rather than
     one id
@@ -54,3 +58,5 @@ class FieldKey(BaseStrEnum):
     OPTION_TYPE = 'option_type'
     SELECTABLE = 'selectable'
     MULTIPLE = 'multiple'
+    PROTECTION = 'protection'
+    AUDIT_RELEVANT = 'audit_relevant'

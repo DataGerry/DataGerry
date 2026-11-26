@@ -412,7 +412,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
     (ObjectLogKey, {'PUBLIC_ID': 'public_id', 'LOG_TIME': 'log_time', 'LOG_TYPE': 'log_type', 'ACTION': 'action',
                     'ACTION_NAME': 'action_name', 'OBJECT_ID': 'object_id', 'VERSION': 'version',
                     'USER_ID': 'user_id', 'USER_NAME': 'user_name', 'COMMENT': 'comment', 'CHANGES': 'changes',
-                    'RENDER_STATE': 'render_state', 'TYPE_ID': 'type_id'}),
+                    'RULE_CHANGES': 'rule_changes', 'RENDER_STATE': 'render_state', 'TYPE_ID': 'type_id'}),
     (ExternalLinkKey, {'NAME': 'name', 'HREF': 'href', 'LABEL': 'label', 'ICON': 'icon', 'FIELDS': 'fields'}),
     (TypeSummaryKey, {'FIELDS': 'fields'}),
     (LocationNodeKey, {'CHILDREN': 'children'}),
@@ -465,6 +465,8 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'OPTION_TYPE': 'option_type',
         'SELECTABLE': 'selectable',
         'MULTIPLE': 'multiple',
+        'PROTECTION': 'protection',
+        'AUDIT_RELEVANT': 'audit_relevant',
     }),
     (NestedSummaryKey, {
         'TYPE_ID': 'type_id',

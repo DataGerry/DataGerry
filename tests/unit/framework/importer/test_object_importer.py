@@ -111,6 +111,7 @@ def _importer(run_config: SimpleNamespace | None = None, stored: list[dict] | No
     importer.objects_manager.guard_writable_type.return_value = importer.target_type
     importer._object_count = None
     importer._types = {}
+    importer._rule_changes = {}
     importer.get_config = lambda: run_config or _run_config()
 
     return importer

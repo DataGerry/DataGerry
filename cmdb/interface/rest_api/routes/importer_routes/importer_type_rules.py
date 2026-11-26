@@ -33,9 +33,12 @@ from typing import Any, Protocol
 from logging import Logger, getLogger
 
 
+from cmdb.framework.access_engine.field_class_lookup import classes_of_fields
 from cmdb.framework.field_pattern_rule import find_field_pattern_errors
 from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPARATOR
-from cmdb.manager import TypesManager
+from cmdb.manager import FieldClassesManager, TypesManager
+from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+from cmdb.models.access_model import SYSTEM_FIELD_CLASS
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
@@ -49,6 +52,7 @@ from cmdb.models.type_model.type_constants import STRUCTURE_ERROR_SEPARATOR
 from cmdb.models.type_model.type_structure_rules import validate_type_structure
 from cmdb.utils import coerce_whole_number, parse_import_bool, is_non_blank_string
 from cmdb.interface.rest_api.routes.access_routes.access_scope_guard import scope_field_change_blocker
+from cmdb.interface.rest_api.routes.access_routes.field_rule_guard import rule_field_change_blocker
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     special_type_is_unchanged,
 )
@@ -403,6 +407,36 @@ def field_patterns_error(fields: Any, stored_fields: Any = None) -> str | None:
     return FIELD_DEFAULT_ERROR_SEPARATOR.join(errors) if errors else None
 
 
+def unknown_field_class_error(type_entry: Any, request_user: CmdbUser) -> str | None:
+    """
+    Refuses an entry whose fields name a field class the database does not hold - the class travels with the Type,
+    the class itself does not (phase 12, D11)
+
+    Args:
+        type_entry (Any): A single entry of the uploaded payload
+        request_user (CmdbUser): The user performing the import - names the tenant
+
+    Raises:
+        FieldClassesManagerGetError: When the classes could not be read
+
+    Returns:
+        str | None: The message naming the unknown classes, or None
+    """
+    if not isinstance(type_entry, dict):
+        return None
+
+    named: set[str] = set(classes_of_fields(type_entry.get(TypeSchemaKey.FIELDS.value)).values()) - {
+        SYSTEM_FIELD_CLASS}
+
+    if not named:
+        return None
+
+    field_classes: FieldClassesManager = ManagerProvider.get_manager(ManagerType.FIELD_CLASSES, request_user)
+    unknown: list[str] = sorted(named - field_classes.find_existing_names(sorted(named)))
+
+    return TypeImportError.UNKNOWN_FIELD_CLASSES.value.format(classes=unknown) if unknown else None
+
+
 def validate_create_entry(type_entry: Any, types_manager: TypesManager, ipam_locked: bool) -> str | None:
     """
     Runs every rule a CREATE entry can be judged by from the upload alone, first finding wins
@@ -534,4 +568,5 @@ def stored_type_update_blocker(
         or person_selector_narrowing_blocker(request_user, old_type, new_type)
         or sync_target_change_blocker(request_user, new_type)
         or scope_field_change_blocker(request_user, old_type, new_type)
+        or rule_field_change_blocker(request_user, old_type, new_type)
     )

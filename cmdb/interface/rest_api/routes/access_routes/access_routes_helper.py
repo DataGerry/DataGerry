@@ -15,7 +15,8 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 What the access rule routes share: reading a document through its model or answering 404, the list read, and the
-create / update / delete that turn a lost uniqueness race into the same 400 as the pre-check
+create / update / delete that turn a lost uniqueness race into the same 400 as the pre-check - each writing its access
+history entry under the same write ledger as the change
 """
 from typing import Any
 
@@ -35,14 +36,24 @@ from cmdb.interface.rest_api.responses import (
 )
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.routes_helper import (
+    undone_on_failure,
     abort_if_duplicate,
     build_searchable_builder_params,
     pin_public_id,
     request_wants_body,
     update_item_from_payload,
 )
+from cmdb.models.access_model import HistoryAction
 from cmdb.interface.rest_api.routes.access_routes.access_route_constants import AccessRouteMessage
+from cmdb.interface.rest_api.routes.access_routes.access_history_helper import (
+    ChangeContext,
+    concerned_groups,
+    record_change,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# What a failed write whose undo could not finish answers
+HISTORY_UNDO_INCOMPLETE_MESSAGE: str = "The access change failed and could not be undone completely: {residue}"
 
 
 def as_model_json(model: type[CmdbDAO], documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -114,39 +125,49 @@ def list_response(manager: GenericManager, model: type[CmdbDAO], params: Collect
 
 
 def create_response(manager: GenericManager, model: type[CmdbDAO], payload: dict[str, Any],
-                    duplicate_message: str) -> Response:
+                    duplicate_message: str, change: ChangeContext) -> Response:
     """
-    Stores a new document and answers it as stored; a unique index refusing it is the pre-check's 400
+    Stores a new document with its history entry and answers it as stored; a unique index refusing it is the
+    pre-check's 400
 
     Args:
         manager (GenericManager): The manager of the collection
         model (type[CmdbDAO]): Its model
         payload (dict[str, Any]): The judged document, without a public_id
         duplicate_message (str): What a lost uniqueness race says
+        change (ChangeContext): The writer, the kind and the comment - recorded in the history
 
     Raises:
         HTTPException: 400 when a unique index refused the document
-        Exception: The manager's 'insert' error for any other failure
+        Exception: The manager's 'insert' error for any other failure; the history's when its entry could not be
+            written (the document is removed again)
 
     Returns:
         Response: 201 with the stored document and its new id
     """
-    try:
-        public_id: int = manager.insert_item(payload)
-    except manager.exceptions['insert'] as err:
-        abort_if_duplicate(err, duplicate_message)
+    group_ids: set[int] = concerned_groups(change, None, payload)
+
+    with undone_on_failure(HISTORY_UNDO_INCOMPLETE_MESSAGE) as ledger:
+        try:
+            public_id: int = manager.insert_item(payload)
+        except manager.exceptions['insert'] as err:
+            abort_if_duplicate(err, duplicate_message)
+
+        ledger.inserted(manager, public_id)
+        stored: dict[str, Any] = model.to_json(model.from_data({**payload, CmdbDAO.PUBLIC_ID_KEY: public_id}))
+        record_change(change, HistoryAction.CREATE, public_id, None, stored, group_ids, ledger)
 
     # The request's access grants are stale now
     forget_grants()
-    stored: dict[str, Any] = model.to_json(model.from_data({**payload, CmdbDAO.PUBLIC_ID_KEY: public_id}))
 
     return InsertSingleResponse(stored, public_id).make_response()
 
 
 def update_response(manager: GenericManager, model: type[CmdbDAO], public_id: int, payload: dict[str, Any],
-                    duplicate_message: str) -> Response:
+                    duplicate_message: str, change: ChangeContext, before: dict[str, Any]) -> Response:
     """
-    Writes a judged update and answers the document as stored; a unique index refusing it is the pre-check's 400
+    Writes a judged update with its history entry and answers the document as stored; a unique index refusing it is
+    the pre-check's 400
 
     Args:
         manager (GenericManager): The manager of the collection
@@ -154,39 +175,65 @@ def update_response(manager: GenericManager, model: type[CmdbDAO], public_id: in
         public_id (int): The document the URL names
         payload (dict[str, Any]): The judged document, completed from the stored one
         duplicate_message (str): What a lost uniqueness race says
+        change (ChangeContext): The writer, the kind and the comment - recorded in the history
+        before (dict[str, Any]): The document as stored (``load_or_404``)
 
     Raises:
         HTTPException: 400 when a unique index refused the document
-        Exception: The manager's 'update' error for any other failure
+        Exception: The manager's 'update' error for any other failure; the history's when its entry could not be
+            written (the update is undone)
 
     Returns:
         Response: 202 with the stored document
     """
-    try:
-        stored: dict[str, Any] = update_item_from_payload(manager, public_id, model, pin_public_id(payload, public_id))
-    except manager.exceptions['update'] as err:
-        abort_if_duplicate(err, duplicate_message)
+    group_ids: set[int] = concerned_groups(change, before, payload)
+    prior: dict[str, Any] | None = manager.get_item(public_id, as_dict=True)
+
+    with undone_on_failure(HISTORY_UNDO_INCOMPLETE_MESSAGE) as ledger:
+        if prior is not None:
+            ledger.updated(manager, public_id, prior)
+
+        try:
+            stored: dict[str, Any] = update_item_from_payload(manager, public_id, model,
+                                                              pin_public_id(payload, public_id))
+        except manager.exceptions['update'] as err:
+            abort_if_duplicate(err, duplicate_message)
+
+        record_change(change, HistoryAction.UPDATE, public_id, before, stored, group_ids, ledger)
 
     forget_grants()
 
     return UpdateSingleResponse(stored).make_response()
 
 
-def delete_response(manager: GenericManager, stored: dict[str, Any]) -> Response:
+def delete_response(manager: GenericManager, stored: dict[str, Any], change: ChangeContext) -> Response:
     """
-    Deletes a document the caller read and judged, and answers it as it was stored
+    Deletes a document the caller read and judged, with its history entry, and answers it as it was stored
 
     Args:
         manager (GenericManager): The manager of the collection
         stored (dict[str, Any]): The document as stored (``load_or_404``)
+        change (ChangeContext): The writer, the kind and the comment - recorded in the history
 
     Raises:
-        Exception: The manager's 'delete' error when the delete fails
+        Exception: The manager's 'delete' error when the delete fails; the history's when its entry could not be
+            written (the document is put back)
 
     Returns:
         Response: 202 with the deleted document
     """
-    manager.delete_item(stored[CmdbDAO.PUBLIC_ID_KEY])
+    public_id: int = stored[CmdbDAO.PUBLIC_ID_KEY]
+    group_ids: set[int] = concerned_groups(change, stored, None)
+    prior: dict[str, Any] | None = manager.get_item(public_id, as_dict=True)
+
+    with undone_on_failure(HISTORY_UNDO_INCOMPLETE_MESSAGE) as ledger:
+        manager.delete_item(public_id)
+
+        if prior is not None:
+            ledger.deleted(manager, public_id, prior)
+
+        record_change(change, HistoryAction.DELETE, public_id, stored, None, group_ids, ledger)
+
     forget_grants()
 
     return DeleteSingleResponse(stored).make_response()

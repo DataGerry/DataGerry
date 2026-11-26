@@ -49,7 +49,9 @@ from flask import abort, request
 from werkzeug import Response
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager import ScopeRolesManager, SettingsManager, TypesManager
+from cmdb.manager import FieldRulesManager, ScopeRolesManager, SettingsManager, TypesManager
+from cmdb.models.access_model import HistorySource, ScopeRoleKey
+from cmdb.interface.rest_api.routes.access_routes.access_history_helper import pull_types_with_history
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.config_item_sync import handle_sync_config_item_count
@@ -253,12 +255,16 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
     settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
     scope_roles_manager: ScopeRolesManager = ManagerProvider.get_manager(ManagerType.SCOPE_ROLES, request_user)
+    field_rules_manager: FieldRulesManager = ManagerProvider.get_manager(ManagerType.FIELD_RULES, request_user)
 
     with configuration_lock(request_user):
         try:
             deleted: dict[str, int] = run_reset(types_manager)
             # The Types are gone past the Type delete: the scope roles keep only the ids still stored
-            scope_roles_manager.pull_missing_types(types_manager.get_distinct(CmdbDAO.PUBLIC_ID_KEY, {}))
+            stored_type_ids: list[int] = types_manager.get_distinct(CmdbDAO.PUBLIC_ID_KEY, {})
+            # So do the Field Rules - a rule left with no Type stays and runs nowhere; each change is recorded in the
+            # access change history
+            _pull_missing_types(request_user, stored_type_ids, scope_roles_manager, field_rules_manager)
             forget_grants()
             settings_manager.delete_section(START_ASSISTANT_SETTINGS_SECTION)
         finally:
@@ -268,3 +274,33 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
                    request_user.public_id, deleted)
 
     return DefaultResponse({ResetResponseKey.DELETED.value: deleted}).make_response()
+
+
+def _pull_missing_types(request_user: CmdbUser, stored_type_ids: list[int], scope_roles_manager: ScopeRolesManager,
+                        field_rules_manager: FieldRulesManager) -> None:
+    """
+    Takes the Type ids no longer stored out of the scope roles and Field Rules, each change in the access history
+
+    Args:
+        request_user (CmdbUser): Who reset the configuration
+        stored_type_ids (list[int]): The Types still stored
+        scope_roles_manager (ScopeRolesManager): The scope roles
+        field_rules_manager (FieldRulesManager): The Field Rules
+
+    Raises:
+        BaseManagerGetError | BaseManagerUpdateError: When a read or the pull fails
+    """
+    stored: set[int] = set(stored_type_ids)
+
+    def stale(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [document for document in documents if isinstance(document.get(ScopeRoleKey.TYPES.value), list)
+                and set(document[ScopeRoleKey.TYPES.value]) - stored]
+
+    pull_types_with_history(
+        request_user, HistorySource.CONFIGURATION_RESET,
+        lambda type_ids: [type_id for type_id in type_ids if type_id in stored],
+        stale(scope_roles_manager.all_roles()), stale(field_rules_manager.all_rules()),
+        lambda: (scope_roles_manager.pull_missing_types(stored_type_ids),
+                 field_rules_manager.pull_missing_types(stored_type_ids)))
+    # The request's access grants are stale now
+    forget_grants()

@@ -162,6 +162,8 @@ class RenderTypeInfoKey(BaseStrEnum):
             the stored block, which decides nothing
         ALLOWED_OPERATIONS: What the render user may do with objects of the type - ``view`` / ``create`` / ``edit`` /
             ``delete`` as the access engine allows; what a client shows or hides its actions by
+        FIELD_ACCESS: Per field of the object, ``write`` / ``read`` / ``system`` - what the render user may do with
+            it in an edit of this object (phase 12); what an object form marks read-only by
         SELECTABLE_AS_PARENT: Whether objects of this type may be a CmdbLocation parent
         USES_PORTS: Whether objects of this type may carry physical ports (Port Connectivity)
         PORT_SECTION_INDEX: Where the ports section is drawn among the type's sections (0 = first).
@@ -178,6 +180,7 @@ class RenderTypeInfoKey(BaseStrEnum):
     VERSION = 'version'
     ACL = 'acl'
     ALLOWED_OPERATIONS = 'allowed_operations'
+    FIELD_ACCESS = 'field_access'
     SELECTABLE_AS_PARENT = 'selectable_as_parent'
     USES_PORTS = 'uses_ports'
     PORT_SECTION_INDEX = 'port_section_index'

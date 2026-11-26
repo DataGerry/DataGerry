@@ -36,6 +36,12 @@ from .access_engine_constants import (
     OPERATION_REFUSED_MESSAGE,
     FIELDS_REFUSED_MESSAGE,
     ALLOWED_OPERATIONS_KEY,
+    FieldAccess,
+    EXPLAINED_OPERATIONS,
+    OPERATION_RIGHTS,
+    ExplainKey,
+    ExplainStep,
+    ExplainVerdict,
 )
 from .access_type_set import TypeSet
 from .access_grants import (
@@ -84,7 +90,17 @@ from .access_filters import (
 )
 from .object_field_changes import TOP_LEVEL, field_values, changed_field_names, same_value
 from .scope_evaluation import ConditionalGrant, ScopeEvaluation, load_scope_evaluation
-from .access_decision import AccessDecision, judged_states, refused_fields, decide, can, refusal_message
+from .access_decision import (
+    AccessDecision,
+    judged_states,
+    refused_fields,
+    decide,
+    can,
+    refusal_message,
+    unwritable_fields,
+    object_field_access,
+)
+from .field_class_lookup import classes_of_fields, type_field_classes
 from .type_acl_translation import (
     VALUE_OPERATIONS,
     TranslatedRole,
@@ -103,9 +119,34 @@ from .type_acl_migration import (
     inactive_type_ids,
     pending_report,
 )
+from .access_explanation import (
+    ExplainSubject,
+    condition_marks,
+    explain_assignment,
+    explain_operation,
+    explain_operations,
+    explained_states,
+    field_rows,
+    group_verdict,
+    names_member,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'EXPLAINED_OPERATIONS',
+    'OPERATION_RIGHTS',
+    'ExplainKey',
+    'ExplainStep',
+    'ExplainVerdict',
+    'ExplainSubject',
+    'condition_marks',
+    'explain_assignment',
+    'explain_operation',
+    'explain_operations',
+    'explained_states',
+    'field_rows',
+    'group_verdict',
+    'names_member',
     'ObjectState',
     'AccessDecisionStep',
     'PERMISSION_OPERATIONS',
@@ -166,6 +207,11 @@ __all__: list[str] = [
     'refused_fields',
     'decide',
     'can',
+    'unwritable_fields',
+    'object_field_access',
+    'FieldAccess',
+    'classes_of_fields',
+    'type_field_classes',
     'refusal_message',
     'OPERATION_REFUSED_MESSAGE',
     'FIELDS_REFUSED_MESSAGE',

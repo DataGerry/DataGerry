@@ -207,6 +207,16 @@ def get_cmdb_type_schema() -> dict[str, Any]:
                         'required': True
                     },
                     **get_field_definition_rules(),
+                    # The field class and the audit flag - set through the Field Protection routes only
+                    "protection": {
+                        'type': 'string',
+                        'required': False,
+                        'nullable': True,
+                    },
+                    "audit_relevant": {
+                        'type': 'boolean',
+                        'required': False,
+                    },
                     "default": {
                         'nullable': True,
                         'empty': True

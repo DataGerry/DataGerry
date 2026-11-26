@@ -37,7 +37,11 @@ from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
 
 from cmdb.interface.rest_api.routes.access_routes.access_scope_guard import guard_scope_field_change
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import guard_updated_acl
+from cmdb.interface.rest_api.routes.access_routes.field_rule_guard import guard_rule_field_change
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import (
+    guard_field_protection,
+    guard_updated_acl,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_guard_helper import (
     guard_field_identifier_change,
     guard_location_field_removal,
@@ -119,6 +123,8 @@ def prepare_type_update_payload(data: dict[str, Any], old_type: CmdbType, reques
     4. the identifier, structure, pattern and default rules of the create - for identifiers and patterns only what
        the update adds or changes, a stored one passes
     5. the ``acl`` may only be sent as the Type answers it, and the stored block is kept (``guard_updated_acl``)
+    6. the fields' class and audit flag may only be sent as stored, and the stored ones are kept
+       (``guard_field_protection``, phase 12)
 
     Args:
         data (dict[str, Any]): The validated update payload, changed in place
@@ -153,6 +159,7 @@ def prepare_type_update_payload(data: dict[str, Any], old_type: CmdbType, reques
     guard_field_defaults(data)
 
     guard_updated_acl(data, old_type, request_user)
+    guard_field_protection(data, old_type)
 
     return dropped_claims
 
@@ -198,6 +205,7 @@ def guard_type_update_changes(
     guard_person_selector_narrowing(request_user, old_type, new_type)
     guard_sync_target_change(request_user, new_type)
     guard_scope_field_change(request_user, old_type, new_type)
+    guard_rule_field_change(request_user, old_type, new_type)
 
 
 def write_type_update(

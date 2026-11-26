@@ -63,5 +63,6 @@ class ObjectLogKey(BaseStrEnum):
     USER_NAME = 'user_name'
     COMMENT = 'comment'
     CHANGES = 'changes'
+    RULE_CHANGES = 'rule_changes'
     RENDER_STATE = 'render_state'
     TYPE_ID = 'type_id'

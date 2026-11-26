@@ -59,6 +59,8 @@ class ManagerType(BaseStrEnum):
     OBJECT_GROUP = 'ObjectGroupsManager'
     CI_EXPLORER_PROFILE = 'CiExplorerProfileManager'
     FIELD_CLASSES = 'FieldClassesManager'
+    FIELD_RULES = 'FieldRulesManager'
+    ACCESS_HISTORY = 'AccessHistoryManager'
     SCOPE_ROLES = 'ScopeRolesManager'
     ACCESS_ASSIGNMENTS = 'AccessAssignmentsManager'
 

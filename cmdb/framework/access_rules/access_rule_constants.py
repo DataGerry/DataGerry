@@ -37,6 +37,9 @@ class AccessRuleMessage(BaseStrEnum):
     FIELD_CLASS_IN_USE = (
         "Field class '{name}' cannot be deleted - the scope roles {role_ids} grant it: take it out of them first!"
     )
+    FIELD_CLASS_ON_FIELDS = (
+        "Field class '{name}' cannot be deleted - {count} field(s) carry it (see its usage): take it off them first!"
+    )
     SCOPE_ROLE_IN_USE = (
         "Scope role {role_id} cannot be deleted - the assignments {assignment_ids} grant it: delete them first!"
     )
@@ -59,6 +62,7 @@ class ReachPart(BaseStrEnum):
     """
     OPERATION = "{operation} on {types}"
     REGULAR_FIELDS = "writing fields on {types}"
+    FIELD_CLASS = "writing the field class '{name}' on {types}"
     EVERY_TYPE = "every Type"
     TYPE_IDS = "Types {ids}"
     SEPARATOR = "; "

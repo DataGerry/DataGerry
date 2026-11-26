@@ -19,8 +19,9 @@ roles
 
 A scope role assigned to one of the caller's own groups - by an assignment write, or by changing a role already
 assigned to one - may grant only what the caller's own grants already allow: each operation on each of its Types,
-and writing fields wherever it grants a writing operation with ``write_regular_fields``. A role on every Type needs
-the operation on every restricted Type. Judged against the caller's grants before the write
+and writing fields wherever it grants a writing operation with ``write_regular_fields``, and each field class it
+grants wherever it grants a writing operation (phase 12, D9). A role on every Type needs the operation on every
+restricted Type. Judged against the caller's grants before the write
 """
 from collections.abc import Collection, Mapping
 from typing import Any
@@ -65,8 +66,8 @@ def beyond_reach(grants: AccessGrants, role: Mapping[str, Any]) -> list[str]:
         role (Mapping[str, Any]): The scope role as it would be stored
 
     Returns:
-        list[str]: Each operation (and the field writing) the role grants on Types the caller lacks it on, in
-            ScopeOperation order; empty when the role stays within the caller's reach
+        list[str]: Each operation, the field writing and each field class the role grants on Types the caller
+            lacks it on, in that order; empty when the role stays within the caller's reach
     """
     role_types: TypeSet = TypeSet.from_role_types(role.get(ScopeRoleKey.TYPES.value))
     operations: frozenset[ScopeOperation] = role_operations(role)
@@ -88,7 +89,33 @@ def beyond_reach(grants: AccessGrants, role: Mapping[str, Any]) -> list[str]:
         if not lacking_fields.is_empty():
             beyond.append(ReachPart.REGULAR_FIELDS.value.format(types=_types_text(lacking_fields)))
 
+    for field_class in (sorted(role.get(ScopeRoleKey.FIELD_CLASSES.value) or []) if writing else []):
+        lacking_class: TypeSet = TypeSet.union_of(
+            types_beyond(class_types(grants, operation, field_class), grants.restricted, role_types)
+            for operation in writing
+        )
+
+        if not lacking_class.is_empty():
+            beyond.append(ReachPart.FIELD_CLASS.value.format(name=field_class, types=_types_text(lacking_class)))
+
     return beyond
+
+
+def class_types(grants: AccessGrants, operation: ScopeOperation, field_class: str) -> TypeSet:
+    """
+    The Types the caller's unconditional assignments let it write a field class on through an operation
+
+    Args:
+        grants (AccessGrants): The caller's grants
+        operation (ScopeOperation): A writing operation
+        field_class (str): The class
+
+    Returns:
+        TypeSet: Those Types
+    """
+    return TypeSet.union_of(entry.types for entry in grants.entries
+                            if not entry.conditional and operation in entry.operations
+                            and field_class in entry.field_classes)
 
 
 def own_reach_problem(grants: AccessGrants, role_id: int, role: Mapping[str, Any], group_ids: Collection[int],
