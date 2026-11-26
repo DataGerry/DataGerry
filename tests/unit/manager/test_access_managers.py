@@ -23,7 +23,7 @@ failure is raised as the manager's own error carrying it, a programming error pr
 match is the integration tier's question
 """
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -234,26 +234,38 @@ def test_a_group_read_for_a_ledger_keeps_the_mongo_id() -> None:
     mock.find.assert_called_once_with(criteria={'group_id': GROUP_ID}, projection=None, sort=BY_PUBLIC_ID)
 
 
-class TestTypeAclMigrationReport:
-    """ScopeRolesManager.type_acl_migration_report"""
+class TestMigrationReports:
+    """ScopeRolesManager.migration_reports"""
 
-    REPORT: dict[str, Any] = {'status': 'complete', 'types': []}
+    TYPE_REPORT: dict[str, Any] = {'status': 'complete', 'types': []}
+    RIGHTS_REPORT: dict[str, Any] = {'groups': [{'group_id': 7, 'granted': ['base.access.view']}]}
 
-    def test_one_read_by_the_report_id_without_mongo_id(self) -> None:
-        """The report collection, at most one document"""
+    def test_each_report_read_by_its_id_without_mongo_id(self) -> None:
+        """The report collection, one document per id, keyed by it"""
         mock = _mock(ScopeRolesManager)
-        mock.get_many_from_other_collection.return_value = [self.REPORT]
+        mock.get_many_from_other_collection.side_effect = [[self.TYPE_REPORT], [self.RIGHTS_REPORT]]
 
-        assert ScopeRolesManager.type_acl_migration_report(mock) == self.REPORT
-        mock.get_many_from_other_collection.assert_called_once_with(
-            'access.migrationReport', limit=1, projection=WHOLE, criteria={'_id': 'type_acl_migration'})
+        assert ScopeRolesManager.migration_reports(mock) == {
+            'type_acl_migration': self.TYPE_REPORT, 'access_rights_migration': self.RIGHTS_REPORT,
+        }
+        assert mock.get_many_from_other_collection.call_args_list == [
+            call('access.migrationReport', limit=1, projection=WHOLE, criteria={'_id': report_id})
+            for report_id in ('type_acl_migration', 'access_rights_migration')
+        ]
 
-    def test_no_report_is_none(self) -> None:
-        """A database the migration never ran on"""
+    def test_a_missing_report_is_absent(self) -> None:
+        """Only the rights migration ran"""
+        mock = _mock(ScopeRolesManager)
+        mock.get_many_from_other_collection.side_effect = [[], [self.RIGHTS_REPORT]]
+
+        assert ScopeRolesManager.migration_reports(mock) == {'access_rights_migration': self.RIGHTS_REPORT}
+
+    def test_no_report_is_empty(self) -> None:
+        """A database no migration wrote to"""
         mock = _mock(ScopeRolesManager)
         mock.get_many_from_other_collection.return_value = []
 
-        assert ScopeRolesManager.type_acl_migration_report(mock) is None
+        assert not ScopeRolesManager.migration_reports(mock)
 
     def test_a_failed_read_is_the_managers_error(self) -> None:
         """Carrying the cause"""
@@ -262,7 +274,7 @@ class TestTypeAclMigrationReport:
         mock.get_many_from_other_collection.side_effect = cause
 
         with pytest.raises(ScopeRolesManagerGetError) as raised:
-            ScopeRolesManager.type_acl_migration_report(mock)
+            ScopeRolesManager.migration_reports(mock)
 
         assert raised.value.args[0] is cause
 

@@ -60,6 +60,8 @@ from cmdb.manager import (
     TypesManager,
 )
 from cmdb.manager.query_builder import BuilderParameters
+from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+from cmdb.manager.object_scope_blocks import ObjectScopeBlocks
 from cmdb.manager.object_relations_manager import (
     build_readable_endpoints_condition,
     build_unreadable_endpoints_condition,
@@ -1128,5 +1130,23 @@ def reconcile_object_relations(relation_id: int,
                                 deleted)
     finally:
         log_object_relation_deletions(object_relation_logs_manager, request_user, deleted)
+        # Also after a failure part-way: the ends of what was deleted lost it from their related lists
+        relation_scope_blocks(request_user).try_refresh_endpoints(deleted)
 
     return len(deleted)
+
+
+def relation_scope_blocks(request_user: CmdbUser) -> ObjectScopeBlocks:
+    """
+    The scope blocks of the request's database - both ends of an object relation written or deleted are refreshed
+    through it (their ``related`` lists, phase 11 D13)
+
+    Args:
+        request_user (CmdbUser): The user the request is made for
+
+    Returns:
+        ObjectScopeBlocks: Built on the request's objects manager
+    """
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+    return ObjectScopeBlocks(objects_manager)

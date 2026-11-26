@@ -17,6 +17,7 @@
 The access engine: decides from the stored scope roles and assignments which objects a user may view, create, edit
 and delete. Every access decision goes through it - the type ACL functions in ``cmdb.security.acl`` delegate here
 """
+from cmdb.models.access_model import ScopeOperation
 from .access_engine_constants import (
     ObjectState,
     AccessDecisionStep,
@@ -72,13 +73,17 @@ from .access_filters import (
     denied_types,
     denied_type_ids,
     scope_filter,
+    record_scope_filter,
+    type_reachable,
     permitted_types_criteria,
     type_allows,
     operations_on_types,
     allowed_operation_values,
+    object_operation_values,
     synthesised_acl_values,
 )
 from .object_field_changes import TOP_LEVEL, field_values, changed_field_names, same_value
+from .scope_evaluation import ConditionalGrant, ScopeEvaluation, load_scope_evaluation
 from .access_decision import AccessDecision, judged_states, refused_fields, decide, can, refusal_message
 from .type_acl_translation import (
     VALUE_OPERATIONS,
@@ -132,10 +137,17 @@ __all__: list[str] = [
     'denied_types',
     'denied_type_ids',
     'scope_filter',
+    'record_scope_filter',
+    'type_reachable',
+    'ScopeOperation',
+    'ScopeEvaluation',
+    'ConditionalGrant',
+    'load_scope_evaluation',
     'permitted_types_criteria',
     'type_allows',
     'operations_on_types',
     'allowed_operation_values',
+    'object_operation_values',
     'synthesised_acl_values',
     'EVERY_ASSIGNMENT_KEY',
     'load_access_rules',

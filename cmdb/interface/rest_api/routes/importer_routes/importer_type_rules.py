@@ -48,6 +48,7 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.type_model.type_constants import STRUCTURE_ERROR_SEPARATOR
 from cmdb.models.type_model.type_structure_rules import validate_type_structure
 from cmdb.utils import coerce_whole_number, parse_import_bool, is_non_blank_string
+from cmdb.interface.rest_api.routes.access_routes.access_scope_guard import scope_field_change_blocker
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     special_type_is_unchanged,
 )
@@ -532,4 +533,5 @@ def stored_type_update_blocker(
         or uses_ports_change_blocker(request_user, old_type, new_type)
         or person_selector_narrowing_blocker(request_user, old_type, new_type)
         or sync_target_change_blocker(request_user, new_type)
+        or scope_field_change_blocker(request_user, old_type, new_type)
     )

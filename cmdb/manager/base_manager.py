@@ -26,8 +26,9 @@ from cmdb.manager.query_builder import BaseQueryBuilder, BuilderParameters
 from cmdb.manager.other_collection_access_mixin import OtherCollectionAccessMixin
 from cmdb.manager.public_id_counter_access_mixin import PublicIdCounterAccessMixin
 
+from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.user_model import CmdbUser
-from cmdb.security.acl.builder import build_scope_criteria
+from cmdb.security.acl.builder import build_record_scope_criteria, build_scope_criteria
 from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.database.database_constants import PUBLIC_ID_FIELD
@@ -47,6 +48,9 @@ from cmdb.errors.manager import (
     BaseManagerDeleteError,
     BaseManagerIterationError,
 )
+
+# The collection whose documents are CmdbObjects - their access judges scope conditions, every other one's its type_id
+OBJECTS_COLLECTION: str = CmdbObject.COLLECTION
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -247,7 +251,8 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
     def _apply_acl_to_builder_params(
         builder_params: BuilderParameters,
         user: CmdbUser | None = None,
-        permission: AccessControlPermission | None = None
+        permission: AccessControlPermission | None = None,
+        records: bool = False
     ) -> None:
         """
         Narrows a query's criteria to the CmdbTypes the user's groups may access
@@ -257,19 +262,23 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
         access rule appended as pipeline stages filters the rows and leaves the total beside them
         unfiltered. Putting it in the criteria makes one rule govern both.
 
-        The criteria is the access engine's object filter (``build_scope_criteria``); it is skipped entirely when no
-        user or no permission was given, which is how every internal caller reads. Nothing is added when the user is
-        denied nothing, which is the common case
+        The criteria is the access engine's object filter (``build_scope_criteria``) for CmdbObjects - their scope
+        conditions judged - and the Type-only filter on ``type_id`` (``build_record_scope_criteria``) for every other
+        collection (logs, ...), which carries no object state to judge a condition on (phase 9, R26). It is skipped
+        entirely when no user or no permission was given, which is how every internal caller reads. Nothing is added
+        when the user is denied nothing, which is the common case
 
         Args:
             builder_params (BuilderParameters): The parameters to narrow, modified in place
             user (CmdbUser | None): The user making the request. Defaults to None
             permission (AccessControlPermission | None): Permission to check. Defaults to None
+            records (bool): Whether the collection holds records rather than CmdbObjects. Defaults to False
         """
         if not user or not permission:
             return
 
-        scope_criteria: dict[str, Any] = build_scope_criteria(user, permission)
+        scope_criteria: dict[str, Any] = build_record_scope_criteria(user, permission) if records \
+            else build_scope_criteria(user, permission)
 
         if scope_criteria:
             builder_params.add_criteria(scope_criteria)
@@ -306,7 +315,8 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
             tuple[list[dict[str, Any]], int]: The aggregation results and the total document count
         """
         try:
-            self._apply_acl_to_builder_params(builder_params, user, permission)
+            self._apply_acl_to_builder_params(builder_params, user, permission,
+                                              records=self.collection != OBJECTS_COLLECTION)
         except (BaseManagerGetError, BaseManagerInitError) as err:
             raise BaseManagerIterationError(err) from err
 

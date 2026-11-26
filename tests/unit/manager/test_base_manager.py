@@ -31,6 +31,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.manager.base_manager import BaseManager
+from cmdb.models.object_model import CmdbObject
 from cmdb.manager.base_manager_constants import EMPTY_DELETE_FILTER_MSG
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.utils import find_cause
@@ -627,9 +628,15 @@ def test_iterate_query_returns_results_and_total() -> None:
     assert result == (docs, 7)
 
 
-def test_iterate_query_delegates_the_data_half_to_aggregate_query() -> None:
-    """The data pipeline is not rebuilt here - iterate_query is aggregate_query plus a count"""
+@pytest.mark.parametrize('collection, records', [(CmdbObject.COLLECTION, False), ('framework.logs', True)],
+                         ids=['objects', 'records'])
+def test_iterate_query_delegates_the_data_half_to_aggregate_query(collection: str, records: bool) -> None:
+    """
+    The data pipeline is not rebuilt here - iterate_query is aggregate_query plus a count; the objects take the
+    object-level filter, any other collection the Type-level one of its stamped records (phase 9, R26)
+    """
     mgr = _mock_manager()
+    mgr.collection = collection
     mgr.aggregate_query.return_value = []
     mgr.query_builder.count.return_value = []
     mgr.aggregate_within_time_limit.return_value = []
@@ -640,7 +647,7 @@ def test_iterate_query_delegates_the_data_half_to_aggregate_query() -> None:
     # The access control has already been put INTO params, so the data half is not given it again -
     # handing it down would restrict the rows and leave the count beside them unrestricted
     mgr.aggregate_query.assert_called_once_with(params)
-    mgr._apply_acl_to_builder_params.assert_called_once_with(params, user, permission)
+    mgr._apply_acl_to_builder_params.assert_called_once_with(params, user, permission, records=records)
     # Only the count pipeline is aggregated directly; the data half went through aggregate_query
     assert mgr.aggregate_within_time_limit.call_count == 1
 
@@ -711,6 +718,21 @@ def test_apply_acl_to_builder_params_merges_the_access_filter(scope_criteria: di
 
     scope.assert_called_once_with(user, permission)
     params.add_criteria.assert_called_once_with(scope_criteria)
+
+
+def test_apply_acl_to_builder_params_takes_the_type_level_filter_for_records() -> None:
+    """A log or an event stamps a Type, not the object's state: the Type-level filter (phase 9, R26)"""
+    params = MagicMock()
+    user, permission = MagicMock(), MagicMock()
+    record_criteria: dict[str, Any] = {'type_id': {'$nin': [7]}}
+
+    with patch(f'{MODULE_PATH}.build_scope_criteria') as objects, \
+         patch(f'{MODULE_PATH}.build_record_scope_criteria', return_value=record_criteria) as records:
+        BaseManager._apply_acl_to_builder_params(params, user, permission, records=True)
+
+    objects.assert_not_called()
+    records.assert_called_once_with(user, permission)
+    params.add_criteria.assert_called_once_with(record_criteria)
 
 
 def test_iterate_query_total_defaults_to_zero_when_count_empty() -> None:

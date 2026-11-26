@@ -98,6 +98,7 @@ FILE_LEVELS: dict[str, str] = {
     # Its one route reads, like every read of the access rules: ADMIN
     'access_routes/migration_report_routes.py': ADMIN,
     'access_routes/type_assignment_routes.py': ADMIN,
+    'access_routes/scope_catalogue_routes.py': ADMIN,
     # Rebuilds or wipes the tenant's whole configuration
     'configuration_transfer_routes/configuration_transfer_routes.py': SUPER_ADMIN,
     # The feature and presentation surfaces: never the cloud API key
@@ -183,7 +184,9 @@ ROUTE_EXCEPTIONS: dict[str, dict[str, str]] = {
     'access_routes/scope_role_routes.py': {'get_scope_roles': ADMIN, 'get_scope_role': ADMIN,
                                            'get_scope_role_usage': ADMIN},
     'access_routes/assignment_routes.py': {'get_assignments': ADMIN, 'get_assignment': ADMIN,
-                                           'get_assignment_usage': ADMIN},
+                                           'get_assignment_usage': ADMIN,
+                                           # Judges a scope, writes nothing - a read of the access rules
+                                           'check_assignment_scope': ADMIN, 'simulate_assignment_route': ADMIN},
 }
 
 # Routes that declare no level at all: (file, function) -> why

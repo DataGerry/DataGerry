@@ -30,7 +30,7 @@ hidden object changed
 from typing import Any
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.security.acl.helpers import has_type_document_access
+from cmdb.security.acl.helpers import has_type_document_reach, object_access_allowed
 from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.models.webhook_model.webhook_constants import WebhookKey
@@ -58,16 +58,23 @@ def event_type_id(object_before: dict[str, Any] | None, object_after: dict[str, 
     return None
 
 
-def owner_may_receive(owner: CmdbUser | None, type_document: dict[str, Any] | None) -> bool:
+def owner_may_receive(owner: CmdbUser | None, type_document: dict[str, Any] | None,
+                      states: tuple[dict[str, Any], ...] = ()) -> bool:
     """
-    Whether one webhook owner may receive an event about an object of one type
+    Whether one webhook owner may receive an event about an object
+
+    The event carries the object's states before and after the change: the owner must be allowed to view every one of
+    them - its scope conditions judged per state (phase 9, R25), so a change moving the object into or out of the
+    owner's scope delivers nothing
 
     Args:
         owner (CmdbUser | None): The webhook's owner, or None when it does not exist (any more)
         type_document (dict[str, Any] | None): The object's CmdbType document, or None when it cannot be read
+        states (tuple[dict[str, Any], ...]): The object states the event carries
 
     Returns:
-        bool: True when the owner exists, is active, and may READ objects of the type
+        bool: True when the owner exists, is active, reaches the Type and may view the object in every state the event
+            carries
     """
     if owner is None or not owner.active:
         return False
@@ -75,13 +82,19 @@ def owner_may_receive(owner: CmdbUser | None, type_document: dict[str, Any] | No
     if type_document is None:
         return True
 
-    return has_type_document_access(type_document, owner, AccessControlPermission.READ)
+    # The Type gate first: a Type document without its public_id, or one the owner reaches no object of, refuses even
+    # an event without states
+    if not has_type_document_reach(type_document, owner, AccessControlPermission.READ):
+        return False
+
+    return all(object_access_allowed(state, owner, AccessControlPermission.READ) for state in states)
 
 
 def scope_webhooks_to_owners(
         webhooks: list[Any],
         type_document: dict[str, Any] | None,
-        owners: dict[int, CmdbUser]) -> list[Any]:
+        owners: dict[int, CmdbUser],
+        states: tuple[dict[str, Any], ...] = ()) -> list[Any]:
     """
     Keeps the webhooks whose owner may receive the event
 
@@ -89,11 +102,12 @@ def scope_webhooks_to_owners(
         webhooks (list[Any]): The active webhooks subscribed to the operation
         type_document (dict[str, Any] | None): The object's CmdbType document, or None when it cannot be read
         owners (dict[int, CmdbUser]): The webhooks' owners by public_id
+        states (tuple[dict[str, Any], ...]): The object states the event carries - each judged for the owner
 
     Returns:
         list[Any]: The webhooks to deliver to, in the order given
     """
     return [
         webhook for webhook in webhooks
-        if owner_may_receive(owners.get(getattr(webhook, WebhookKey.OWNER_ID.value, None)), type_document)
+        if owner_may_receive(owners.get(getattr(webhook, WebhookKey.OWNER_ID.value, None)), type_document, states)
     ]

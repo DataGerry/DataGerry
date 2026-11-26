@@ -120,6 +120,7 @@ from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     log_object_relation_deletions,
     read_bulk_delete_selection,
     delete_object_relations,
+    relation_scope_blocks,
 )
 
 from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
@@ -231,6 +232,8 @@ def insert_cmdb_object_relation(data: dict[str, Any], request_user: CmdbUser) ->
         data[ObjectRelationKey.LAST_EDIT_TIME.value] = None
 
         result_id: int = object_relations_manager.insert_object_relation(data)
+        # Both ends' related lists name each other now
+        relation_scope_blocks(request_user).refresh_endpoints([data])
 
         created_object_relation = object_relations_manager.get_object_relation(result_id)
 
@@ -530,6 +533,8 @@ def update_cmdb_object_relation(public_id: int, data: dict[str, Any], request_us
             abort(400, f"The data of the ObjectRelation with ID:{public_id} is not usable!")
 
         object_relations_manager.update_object_relation(public_id, updated_object_relation)
+        # An update may swap both ends: the old and the new ones
+        relation_scope_blocks(request_user).refresh_endpoints([to_update_object_relation, updated_object_relation])
 
         # Logged only once the write went through, so the history can never claim a change that failed
         log_object_relation_update(
@@ -596,6 +601,8 @@ def delete_cmdb_object_relation(public_id: int, request_user: CmdbUser) -> Respo
 
         if deleted_object_relation is None:
             abort(404, OBJECT_RELATION_NOT_FOUND_MESSAGE.format(public_id=public_id))
+
+        relation_scope_blocks(request_user).refresh_endpoints([deleted_object_relation])
 
         log_object_relation_change(
             object_relation_logs_manager, request_user, LogInteraction.DELETE, deleted_object_relation, None,
@@ -664,6 +671,7 @@ def delete_many_object_relations(request_user: CmdbUser) -> Response:
         finally:
             # Also after a failure part-way: what was deleted before it is history all the same
             log_object_relation_deletions(object_relation_logs_manager, request_user, deleted)
+            relation_scope_blocks(request_user).try_refresh_endpoints(deleted)
 
         if not deleted:
             abort(400, OBJECT_RELATION_BULK_NONE_EXIST_MESSAGE)

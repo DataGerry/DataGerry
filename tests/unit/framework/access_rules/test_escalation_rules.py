@@ -25,7 +25,14 @@ from typing import Any
 import pytest
 
 from cmdb.framework.access_engine import AccessGrants, TypeSet, build_grants
-from cmdb.framework.access_rules import AccessRuleMessage, ReachPart, beyond_reach, own_reach_problem, types_beyond
+from cmdb.framework.access_rules import (
+    AccessRuleMessage,
+    ReachPart,
+    beyond_reach,
+    delegation_problem,
+    own_reach_problem,
+    types_beyond,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 SERVER_TYPE_ID: int = 11
@@ -116,3 +123,19 @@ class TestOwnReachProblem:
         """No problem"""
         assert own_reach_problem(CALLER_GRANTS, NEW_ROLE_ID, _role([SERVER_TYPE_ID], ['view']), [CALLER_GROUP_ID],
                                  [CALLER_GROUP_ID]) is None
+
+
+class TestDelegationProblem:
+    """delegation_problem - any group, measured against the delegate's grants together"""
+
+    def test_a_role_within_the_delegates_access(self) -> None:
+        """No problem"""
+        assert delegation_problem(CALLER_GRANTS, NEW_ROLE_ID, _role([SERVER_TYPE_ID], ['view'])) is None
+
+    def test_a_role_beyond_it_names_every_part(self) -> None:
+        """Whatever group it is meant for"""
+        problem = delegation_problem(CALLER_GRANTS, NEW_ROLE_ID, _role([ROUTER_TYPE_ID], ['view', 'edit']))
+
+        assert problem == AccessRuleMessage.BEYOND_DELEGATION.value.format(
+            role_id=NEW_ROLE_ID, beyond=ReachPart.SEPARATOR.value.join(['view on Types [12]', 'edit on Types [12]']))
+

@@ -21,6 +21,11 @@ View and delete judge the stored object, create the object as it would be stored
 object out of their reach or into someone else's. A create or an edit must also be allowed to write each changed field;
 every field is a regular field, written through a role granting the operation with ``write_regular_fields``. With a
 trace the decision also names the user's assignments granting the operation on the judged Types
+
+A Type held only through **conditional assignments** (phase 9, R21) allows the operation on a state its condition
+matches - judged in memory (``scope_matcher``) on each judged state, so an edit may neither move an object out of the
+user's scope nor into it from outside; the changed fields are judged against the assignments matching the state the
+object is stored as
 """
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -41,6 +46,7 @@ from cmdb.framework.access_engine.access_engine_constants import (
 from cmdb.framework.access_engine.access_grants import AccessGrants
 from cmdb.framework.access_engine.access_grants_reads import load_grants
 from cmdb.framework.access_engine.object_field_changes import changed_field_names
+from cmdb.framework.access_engine.scope_evaluation import ConditionalGrant, ScopeEvaluation, load_scope_evaluation
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -96,8 +102,8 @@ def judged_states(operation: ScopeOperation, before: Mapping[str, Any] | None,
     return states
 
 
-def refused_fields(grants: AccessGrants, operation: ScopeOperation, type_id: Any, changed: list[str]
-                   ) -> tuple[str, ...]:
+def refused_fields(grants: AccessGrants, operation: ScopeOperation, type_id: Any, changed: list[str],
+                   matching: tuple[ConditionalGrant, ...] = ()) -> tuple[str, ...]:
     """
     The changed fields the user may not write on a Type through roles granting the operation
 
@@ -106,18 +112,22 @@ def refused_fields(grants: AccessGrants, operation: ScopeOperation, type_id: Any
         operation (ScopeOperation): The writing operation
         type_id (Any): The Type the object is to be stored as
         changed (list[str]): The changed field names, ascending
+        matching (tuple[ConditionalGrant, ...]): The conditional assignments matching the state stored - a role of
+            theirs writing regular fields counts too
 
     Returns:
         tuple[str, ...]: The refused names, ascending; empty when every one may be written
     """
-    if grants.writes_regular_fields(operation, type_id):
+    if grants.writes_regular_fields(operation, type_id) or any(grant.entry.write_regular_fields
+                                                               for grant in matching):
         return ()
 
     return tuple(changed)
 
 
 def decide(grants: AccessGrants, operation: ScopeOperation, before: Mapping[str, Any] | None = None,
-           after: Mapping[str, Any] | None = None, trace: bool = False) -> AccessDecision:
+           after: Mapping[str, Any] | None = None, trace: bool = False,
+           evaluation: ScopeEvaluation | None = None) -> AccessDecision:
     """
     Decides one operation on one object from the user's grants
 
@@ -127,6 +137,8 @@ def decide(grants: AccessGrants, operation: ScopeOperation, before: Mapping[str,
         before (Mapping[str, Any] | None): The stored object - needed by view, edit and delete
         after (Mapping[str, Any] | None): The object as it would be stored - needed by create and edit
         trace (bool): Whether the decision names the granting assignments. Defaults to False
+        evaluation (ScopeEvaluation | None): The user's conditional assignments, compiled; None - none evaluated
+            (a Type held only conditionally is then denied)
 
     Raises:
         ValueError: When a state the operation is judged on is not given
@@ -134,28 +146,69 @@ def decide(grants: AccessGrants, operation: ScopeOperation, before: Mapping[str,
     Returns:
         AccessDecision: The decision
     """
-    type_ids: list[Any] = [state.get(CmdbObjectKey.TYPE_ID.value)
-                           for state in judged_states(operation, before, after)]
+    states: list[Mapping[str, Any]] = judged_states(operation, before, after)
+    type_ids: list[Any] = [state.get(CmdbObjectKey.TYPE_ID.value) for state in states]
     assignment_ids: tuple[int, ...] = _granting_assignment_ids(grants, operation, type_ids) if trace else ()
+    denied_type, matching = _judge_states(grants, evaluation, operation, states)
 
-    for type_id in type_ids:
-        if not grants.allows(operation, type_id):
-            return AccessDecision(False, operation, AccessDecisionStep.SCOPE, type_id, (), assignment_ids)
+    if trace:
+        assignment_ids = tuple(sorted({*assignment_ids, *(grant.entry.assignment_id for grant in matching)}))
+
+    if denied_type is not _ALLOWED:
+        return AccessDecision(False, operation, AccessDecisionStep.SCOPE, denied_type, (), assignment_ids)
 
     stored_as: Any = type_ids[-1]
 
     if operation in FIELD_WRITING_OPERATIONS:
-        old: Mapping[str, Any] | None = before if operation is ScopeOperation.EDIT else None
-        refused: tuple[str, ...] = refused_fields(grants, operation, stored_as, changed_field_names(old, after))
+        refused: tuple[str, ...] = refused_fields(
+            grants, operation, stored_as,
+            changed_field_names(before if operation is ScopeOperation.EDIT else None, after), matching)
 
         if refused:
             return AccessDecision(False, operation, AccessDecisionStep.FIELD_CLASS, stored_as, refused,
                                   assignment_ids)
 
-    restricted: bool = any(grants.is_restricted(type_id) for type_id in type_ids)
-    step: AccessDecisionStep = AccessDecisionStep.SCOPE if restricted else AccessDecisionStep.UNRESTRICTED
+    step: AccessDecisionStep = AccessDecisionStep.SCOPE if any(grants.is_restricted(type_id) for type_id in type_ids) \
+        else AccessDecisionStep.UNRESTRICTED
 
     return AccessDecision(True, operation, step, stored_as, (), assignment_ids)
+
+
+# Marks "every judged state allowed" apart from any type_id a state may carry (None included)
+_ALLOWED: object = object()
+
+
+def _judge_states(grants: AccessGrants, evaluation: ScopeEvaluation | None, operation: ScopeOperation,
+                  states: list[Mapping[str, Any]]) -> tuple[Any, tuple[ConditionalGrant, ...]]:
+    """
+    Judges each state: granted in full on its Type, or matched by a conditional assignment
+
+    Args:
+        grants (AccessGrants): The user's grants
+        evaluation (ScopeEvaluation | None): The conditional assignments, compiled; None - none evaluated
+        operation (ScopeOperation): The operation
+        states (list[Mapping[str, Any]]): The judged states, the stored-as state last
+
+    Returns:
+        tuple[Any, tuple[ConditionalGrant, ...]]: The Type of the first state refused (``_ALLOWED`` when none is),
+            and the conditional assignments matching the last state judged conditionally - empty when the state
+            stored is granted in full
+    """
+    matching: tuple[ConditionalGrant, ...] = ()
+
+    for state in states:
+        type_id: Any = state.get(CmdbObjectKey.TYPE_ID.value)
+
+        if grants.allows(operation, type_id):
+            matching = ()
+            continue
+
+        matching = evaluation.matching(operation, state) if evaluation is not None else ()
+
+        if not matching:
+            return type_id, ()
+
+    return _ALLOWED, matching
 
 
 def refusal_message(decision: AccessDecision) -> str | None:
@@ -194,11 +247,16 @@ def can(user: CmdbUser, operation: ScopeOperation, before: Mapping[str, Any] | N
     Raises:
         ValueError: When a state the operation is judged on is not given
         AccessAssignmentsManagerGetError | ScopeRolesManagerGetError: When the grants could not be read
+        ScopeResolutionError: When a conditional assignment could not be evaluated
 
     Returns:
         AccessDecision: The decision
     """
-    return decide(load_grants(user), operation, before, after, trace)
+    grants: AccessGrants = load_grants(user)
+    evaluation: ScopeEvaluation | None = load_scope_evaluation(user, grants) \
+        if grants.conditional_entries(operation) else None
+
+    return decide(grants, operation, before, after, trace, evaluation)
 
 
 def _granting_assignment_ids(grants: AccessGrants, operation: ScopeOperation, type_ids: list[Any]

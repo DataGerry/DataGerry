@@ -113,6 +113,13 @@ USER_NOT_READABLE_MESSAGE: str = "Failed to retrieve the User with ID: {public_i
 # what the caller tried
 ADMINISTRATOR_ONLY_REFUSED: str = "Only an administrator may {action}!"
 ASSIGN_ADMIN_GROUP_ACTION: str = "assign the administrator group"
+
+# Putting users into user groups that hold more than the caller (T579): the refusal, one part per group, the rights part
+MEMBERSHIP_BEYOND_MSG: str = "You cannot put users into user groups holding more than you do: {details}"
+MEMBERSHIP_GROUP_PART: str = "group {group_id} - {beyond}"
+MEMBERSHIP_RIGHTS_PART: str = "rights {names}"
+MEMBERSHIP_PART_SEPARATOR: str = ", "
+MEMBERSHIP_GROUP_SEPARATOR: str = "; "
 CHANGE_ADMINISTRATOR_ACTION: str = "change the field '{field}' of an administrator"
 CHANGE_ADMINISTRATOR_PASSWORD_ACTION: str = "change the password of an administrator"
 DELETE_ADMINISTRATOR_ACTION: str = "delete an administrator"

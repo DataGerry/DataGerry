@@ -16,7 +16,8 @@
 """
 Unit tests for cmdb.interface.rest_api.routes.webhook_routes.webhook_delivery_scope
 
-A webhook receives the write of an object only when its owner exists, is active and may READ the object's type.
+A webhook receives the write of an object only when its owner exists, is active, reaches the object's Type and may
+READ every state of the object the event carries (phase 9, R25).
 Each refusal is checked against a twin that passes, so a test cannot pass because everything is refused. The access
 engine answers from the Types' ACLs these tests build (``decide_by_type_acls``)
 """
@@ -57,8 +58,15 @@ def _type_readable_by(group_id: int) -> dict[str, Any]:
 
 @pytest.fixture(name='engine_reads_the_type_acl', autouse=True)
 def fixture_engine_reads_the_type_acl(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The access engine answers from the one Type these tests judge, readable by the reader's group"""
-    decide_by_type_acls(monkeypatch, [_type_readable_by(READER_GROUP_ID)])
+    """The access engine answers from the Types these tests judge: the reader's group reads TYPE_AFTER_ID, nobody
+    TYPE_BEFORE_ID"""
+    decide_by_type_acls(monkeypatch, [_type_readable_by(READER_GROUP_ID), {
+        TypeSchemaKey.PUBLIC_ID.value: TYPE_BEFORE_ID,
+        TypeSchemaKey.ACL.value: {'activated': True, 'groups': {'includes': {}}}}])
+
+
+STATE: dict[str, Any] = {'public_id': 1, 'type_id': TYPE_AFTER_ID, 'fields': []}
+HIDDEN_STATE: dict[str, Any] = {'public_id': 1, 'type_id': TYPE_BEFORE_ID, 'fields': []}
 
 
 def _webhook(public_id: int, owner_id: int | None) -> Any:
@@ -101,11 +109,15 @@ class TestEventTypeId:
 # -------------------------------------------------- owner_may_receive ----------------------------------------------- #
 
 class TestOwnerMayReceive:
-    """Exists, active, may READ the type"""
+    """Exists, active, reaches the Type, may READ every state"""
 
     def test_a_reader_receives(self) -> None:
         """The twin every refusal below is measured against"""
-        assert owner_may_receive(_owner(), _type_readable_by(READER_GROUP_ID)) is True
+        assert owner_may_receive(_owner(), _type_readable_by(READER_GROUP_ID), (STATE,)) is True
+
+    def test_a_state_the_owner_may_not_read_refuses(self) -> None:
+        """An edit moving the object out of the owner's reach - one state is enough"""
+        assert owner_may_receive(_owner(), _type_readable_by(READER_GROUP_ID), (HIDDEN_STATE, STATE)) is False
 
     def test_no_owner_receives_nothing(self) -> None:
         """A deleted or never-recorded owner"""
@@ -120,8 +132,10 @@ class TestOwnerMayReceive:
         assert owner_may_receive(_owner(active=False), None) is False
 
     def test_an_owner_whose_group_may_not_read_receives_nothing(self) -> None:
-        """The type ACL the object read applies"""
+        """The Type gate refuses even an event without states"""
         assert owner_may_receive(_owner(group_id=OTHER_GROUP_ID), _type_readable_by(READER_GROUP_ID)) is False
+        assert owner_may_receive(_owner(group_id=OTHER_GROUP_ID), _type_readable_by(READER_GROUP_ID),
+                                 (STATE,)) is False
 
     def test_a_type_that_cannot_be_read_back_is_not_refused(self) -> None:
         """A deleted type: the rule the type ACL stage applies everywhere"""
@@ -155,7 +169,7 @@ class TestScopeWebhooksToOwners:
         webhooks = [_webhook(1, OWNER_ID), _webhook(2, OTHER_OWNER_ID), _webhook(3, OWNER_ID)]
         owners = {OWNER_ID: _owner(), OTHER_OWNER_ID: _owner(group_id=OTHER_GROUP_ID)}
 
-        kept = scope_webhooks_to_owners(webhooks, _type_readable_by(READER_GROUP_ID), owners)
+        kept = scope_webhooks_to_owners(webhooks, _type_readable_by(READER_GROUP_ID), owners, (STATE,))
 
         assert [webhook.public_id for webhook in kept] == [1, 3]
 
@@ -164,7 +178,7 @@ class TestScopeWebhooksToOwners:
         webhooks = [_webhook(1, OWNER_ID), _webhook(2, OTHER_OWNER_ID)]
         owners = {OWNER_ID: _owner(group_id=OTHER_GROUP_ID), OTHER_OWNER_ID: _owner()}
 
-        kept = scope_webhooks_to_owners(webhooks, _type_readable_by(READER_GROUP_ID), owners)
+        kept = scope_webhooks_to_owners(webhooks, _type_readable_by(READER_GROUP_ID), owners, (STATE,))
 
         assert [webhook.public_id for webhook in kept] == [2]
 

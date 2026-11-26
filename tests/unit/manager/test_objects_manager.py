@@ -607,7 +607,8 @@ def test_get_objects_by_batches_types_and_skips_access_denied() -> None:
     }
 
     with patch(f'{PATH}.CmdbObject.from_data', side_effect=[obj_a, obj_b]), \
-         patch(f'{PATH}.verify_access', side_effect=[None, AccessDeniedError('nope')]):
+         patch(f'{PATH}.CmdbObject.to_json', side_effect=lambda obj: {'type_id': obj.type_id}), \
+         patch(f'{PATH}.verify_object_access', side_effect=[None, AccessDeniedError('nope')]):
         result = ObjectsManager.get_objects_by(mock_self)
 
     assert result == [obj_a]
@@ -666,7 +667,7 @@ def test_update_object_partial_writes_only_the_given_keys() -> None:
     mock_self.update.return_value.matched_count = 1
     mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID, 'fields': []}
 
-    with patch(f'{PATH}.verify_access'):
+    with patch(f'{PATH}.verify_type_reach'):
         ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'ci_explorer_tooltip': 'hint'}, partial=True)
 
     assert mock_self.guard_writable_type.call_args.args[0] == OWNER_TYPE_ID
@@ -679,7 +680,7 @@ def test_update_object_expected_values_join_the_filter_and_report_a_miss() -> No
     mock_self.update.return_value.matched_count = 0
     mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}
 
-    with patch(f'{PATH}.verify_access'):
+    with patch(f'{PATH}.verify_type_reach'):
         landed = ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'version': '1.0.1'}, partial=True,
                                               expected={'version': '1.0.0'})
 
@@ -840,18 +841,19 @@ def test_get_object_without_a_user_reads_no_type() -> None:
     mock_self.get_object_type.assert_not_called()
 
 
-def test_get_object_with_a_user_and_permission_still_judges_the_type() -> None:
-    """The ACL read is unchanged"""
+def test_get_object_with_a_user_and_permission_judges_the_stored_object() -> None:
+    """The object itself - its scope conditions included (phase 9, R25); no Type read for it"""
     mock_self = MagicMock()
-    mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID, 'author_id': 1,
-                                      'version': '1.0.0', 'fields': []}
+    stored: dict[str, Any] = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID, 'author_id': 1,
+                              'version': '1.0.0', 'fields': []}
+    mock_self.get_one.return_value = stored
     user, permission = MagicMock(), MagicMock()
 
-    with patch(f'{PATH}.verify_access') as verify:
+    with patch(f'{PATH}.verify_object_access') as verify:
         ObjectsManager.get_object(mock_self, OWNER_OBJECT_ID, user, permission)
 
-    mock_self.get_object_type.assert_called_once_with(OWNER_TYPE_ID)
-    verify.assert_called_once_with(mock_self.get_object_type.return_value, user, permission)
+    mock_self.get_object_type.assert_not_called()
+    verify.assert_called_once_with(stored, user, permission)
 
 
 def test_iterate_wraps_failure_as_iteration_error() -> None:
@@ -1250,7 +1252,7 @@ class TestGuardWritableType:
         object_type = MagicMock(active=True)
         mock_self.get_object_type.return_value = object_type
 
-        with patch(f'{PATH}.verify_access'):
+        with patch(f'{PATH}.verify_type_reach'):
             resolved = ObjectsManager.guard_writable_type(
                 mock_self, OWNER_TYPE_ID, None, None, ObjectsManagerDeleteError, 'removed',
             )
@@ -1267,7 +1269,7 @@ class TestGuardWritableType:
         mock_self = MagicMock()
         object_type = MagicMock(active=True)
 
-        with patch(f'{PATH}.verify_access'):
+        with patch(f'{PATH}.verify_type_reach'):
             ObjectsManager.guard_writable_type(
                 mock_self, OWNER_TYPE_ID, None, None, ObjectsManagerDeleteError, 'removed', object_type,
             )
@@ -1301,13 +1303,13 @@ class TestGuardWritableType:
         assert 'updated' in str(caught.value)
 
     def test_the_acl_is_consulted_with_the_user_and_permission(self) -> None:
-        """The ACL check is the guard's last step, and it is the type's ACL that decides."""
+        """The access check is the guard's last step: the Type must be reachable - the object is judged by can()"""
         mock_self = MagicMock()
         object_type = MagicMock(active=True)
         mock_self.get_object_type.return_value = object_type
         user = MagicMock()
 
-        with patch(f'{PATH}.verify_access') as verify:
+        with patch(f'{PATH}.verify_type_reach') as verify:
             ObjectsManager.guard_writable_type(
                 mock_self, OWNER_TYPE_ID, user, AccessControlPermission.DELETE,
                 ObjectsManagerDeleteError, 'removed',
@@ -1481,7 +1483,7 @@ class TestAccessDeniedTravelsUnwrapped:
         mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}
 
         with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=OWNER_TYPE_ID)), \
-             patch(f'{PATH}.verify_access', side_effect=AccessDeniedError('denied')):
+             patch(f'{PATH}.verify_object_access', side_effect=AccessDeniedError('denied')):
             with pytest.raises(AccessDeniedError):
                 ObjectsManager.get_object(mock_self, OWNER_OBJECT_ID, MagicMock(), 'READ')
 
@@ -1511,12 +1513,13 @@ class TestListReadsSkipWhatTheCallerMayNotSee:
         mock_self.get_many.return_value = [{'type_id': 1}, {'type_id': 2}]
         mock_self._load_types_lookup.return_value = {1: 'allowed-type', 2: 'denied-type'}
 
-        def _verify(object_type: Any, *_args: Any) -> None:
-            if object_type == 'denied-type':
+        def _verify(document: dict[str, Any], *_args: Any) -> None:
+            if document['type_id'] == 2:
                 raise AccessDeniedError('denied')
 
         with patch(f'{PATH}.CmdbObject.from_data', side_effect=lambda doc: MagicMock(type_id=doc['type_id'])), \
-             patch(f'{PATH}.verify_access', side_effect=_verify):
+             patch(f'{PATH}.CmdbObject.to_json', side_effect=lambda obj: {'type_id': obj.type_id}), \
+             patch(f'{PATH}.verify_object_access', side_effect=_verify):
             result = ObjectsManager.get_objects_by(mock_self, user=MagicMock(), permission='READ')
 
         assert [item.type_id for item in result] == [1]
@@ -1739,7 +1742,7 @@ def test_get_objects_by_refuses_an_object_whose_type_is_gone() -> None:
     """
     Read for a user, an object of a deleted type has no ACL to judge: the read fails, as it did before
 
-    It used to fail inside verify_access on the missing type, wrapped by the catch-all; the failure is explicit now
+    It used to fail inside the type check on the missing type, wrapped by the catch-all; the failure is explicit now
     """
     mock_self = MagicMock()
     mock_self.get_many.return_value = [{'public_id': 1, 'type_id': 5}]

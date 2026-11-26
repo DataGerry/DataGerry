@@ -34,12 +34,14 @@ from cmdb.models.access_model import (
 
 class AccessRightName(BaseStrEnum):
     """
-    The rights the access rule routes check - every read asks VIEW, each kind's writes its own edit right
+    The rights the access rule routes check - every read asks VIEW, each kind's writes its own edit right; the
+    assignment writes also admit ASSIGNMENT_DELEGATE (within the caller's own access)
     """
     VIEW = 'base.access.view'
     FIELD_CLASS_EDIT = 'base.access.fieldclass.edit'
     SCOPE_ROLE_EDIT = 'base.access.scoperole.edit'
     ASSIGNMENT_EDIT = 'base.access.assignment.edit'
+    ASSIGNMENT_DELEGATE = 'base.access.assignment.delegate'
 
 
 # The request bodies: a create sends the whole document but its public_id, an update what it changes - the stored
@@ -49,7 +51,19 @@ FIELD_CLASS_UPDATE_SCHEMA: dict[str, Any] = build_update_schema(CmdbFieldClass.S
 SCOPE_ROLE_CREATE_SCHEMA: dict[str, Any] = build_write_schema(CmdbScopeRole.SCHEMA)
 SCOPE_ROLE_UPDATE_SCHEMA: dict[str, Any] = build_update_schema(CmdbScopeRole.SCHEMA, all_optional=True)
 ASSIGNMENT_CREATE_SCHEMA: dict[str, Any] = build_write_schema(CmdbAccessAssignment.SCHEMA)
+# The dry run of a scope (POST /access/assignments/check): the role and the scope, both required
+ASSIGNMENT_CHECK_SCHEMA: dict[str, Any] = {key: ASSIGNMENT_CREATE_SCHEMA[key] for key in (
+    AccessAssignmentKey.ROLE_ID.value, AccessAssignmentKey.SCOPE.value)}
 ASSIGNMENT_UPDATE_SCHEMA: dict[str, Any] = build_update_schema(CmdbAccessAssignment.SCHEMA, all_optional=True)
+# The simulation of an assignment (POST /access/assignments/simulate, phase 11): group, role and scope required, and
+# the stored assignment a change is simulated against
+SIMULATION_ASSIGNMENT_ID: str = 'assignment_id'
+ASSIGNMENT_SIMULATE_SCHEMA: dict[str, Any] = {
+    **{key: ASSIGNMENT_CREATE_SCHEMA[key] for key in (AccessAssignmentKey.GROUP_ID.value,
+                                                      AccessAssignmentKey.ROLE_ID.value,
+                                                      AccessAssignmentKey.SCOPE.value)},
+    SIMULATION_ASSIGNMENT_ID: {**ASSIGNMENT_CREATE_SCHEMA[AccessAssignmentKey.GROUP_ID.value], 'required': False},
+}
 
 # The columns each list's search box looks in
 FIELD_CLASS_SEARCHABLE_FIELDS: tuple[str, ...] = (
@@ -86,10 +100,16 @@ TYPE_LABEL: str = 'Type'
 # The query flag confirming a change that opens Types to every user group
 UNRESTRICT_PARAM: str = 'unrestrict'
 
+# The scope role list's flag answering only the roles the caller may hand out
+WITHIN_REACH_PARAM: str = 'within_reach'
+
+# The key of the migration report answer holding the access rights migration's report
+MIGRATION_RIGHTS_KEY: str = 'rights'
+
 
 class AccessRouteMessage(BaseStrEnum):
     """
     The access rule routes' messages - format strings where they carry a placeholder
     """
     NOT_FOUND = "{label} {public_id} does not exist!"
-    NO_MIGRATION_REPORT = "No type ACL was translated on this database - there is no migration report!"
+    NO_MIGRATION_REPORT = "No access migration ran on this database - there is no migration report!"

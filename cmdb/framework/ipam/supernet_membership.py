@@ -44,7 +44,8 @@ from flask import abort
 from pymongo import UpdateOne
 
 from cmdb.manager import ObjectsManager, TypesManager
-from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
+from cmdb.manager.object_scope_blocks import ObjectScopeBlocks
+from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey, CmdbObjectScopeKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
@@ -376,15 +377,22 @@ def clear_supernet_ref(
         supernet_public_id (int): public_id of the supernet the SUBNETs must currently reference
         request_user (CmdbUser | None): The CmdbUser credited as editor; None stamps only the time
 
+    Raises:
+        BaseManagerUpdateError: If the detach or a scope block could not be written
+        BaseManagerGetError | BaseManagerIterationError: If the scope blocks of the subnets' objects could not be read
+
     Returns:
         int: How many SUBNETs were detached; fewer than planned when a concurrent writer moved some
     """
     edit_stamp: dict[str, Any] = build_edit_stamp(request_user)
-
-    return objects_manager.bulk_write([
+    detached: int = objects_manager.bulk_write([
         build_detach_operation(public_id, supernet_public_id, plan.version, edit_stamp)
         for public_id, plan in plans.items()
     ])
+    # The objects in these subnets are no longer in the supernet
+    ObjectScopeBlocks(objects_manager).refresh_naming(list(plans), (CmdbObjectScopeKey.NETWORKS,))
+
+    return detached
 
 
 def is_detached_by_this_write(after_doc: dict[str, Any], plan: PlannedEdit) -> bool:

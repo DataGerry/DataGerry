@@ -24,6 +24,8 @@ from .cmdb_object_key_enum import (
     CmdbObjectFieldKey,
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
+    CmdbObjectScopeKey,
+    CmdbObjectScopeRelatedKey,
     CmdbObjectSyncKey,
     CmdbObjectSystemRefKey,
 )
@@ -43,6 +45,8 @@ __all__: list[str] = [
     'CmdbObjectFieldKey',
     'CmdbObjectMdsKey',
     'CmdbObjectMdsRowKey',
+    'CmdbObjectScopeKey',
+    'CmdbObjectScopeRelatedKey',
     'CmdbObjectSyncKey',
     'CmdbObjectSystemRefKey',
     'OBJECT_DATE_KEYS',

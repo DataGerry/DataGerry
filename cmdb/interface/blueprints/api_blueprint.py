@@ -30,6 +30,7 @@ from cmdb.interface.blueprints.api_blueprint_constants import (
     BODY_NOT_AN_OBJECT_MESSAGE,
     PROTECT_WITHOUT_REQUEST_USER_MESSAGE,
     REQUEST_USER_KWARG,
+    RIGHT_ALTERNATIVES_SEPARATOR,
     RIGHT_CHECK_FAILED_MESSAGE,
     VALIDATION_FAILED_MESSAGE,
 )
@@ -145,7 +146,7 @@ class APIBlueprint(Blueprint):
     @staticmethod
     def protect(
             auth: bool = True,
-            right: str | None = None,
+            right: str | tuple[str, ...] | None = None,
             excepted: dict[str, str] | None = None) -> Callable[..., Any]:
         """
         Decorator refusing a route to a caller who lacks the route's right
@@ -162,7 +163,9 @@ class APIBlueprint(Blueprint):
 
         Args:
             auth (bool): Kept for the call sites; the check runs only when it is True. Defaults to True
-            right (str | None): The required right. If None, the decorator performs no enforcement
+            right (str | tuple[str, ...] | None): The required right, or several of which any one suffices (a route
+                two rights open, e.g. an assignment write for ``assignment.edit`` or ``assignment.delegate`` - the
+                route then tells the two apart). If None, the decorator performs no enforcement
             excepted (dict[str, str] | None): Optional mapping of user-attribute key -> route-parameter name that
                                     grants access even without `right` when the values match
 
@@ -186,17 +189,20 @@ class APIBlueprint(Blueprint):
                         LOGGER.error("[protect] %s carries no insert_request_user above protect", f.__name__)
                         abort(500, PROTECT_WITHOUT_REQUEST_USER_MESSAGE)
 
+                    rights: tuple[str, ...] = (right,) if isinstance(right, str) else right
+                    named: str = RIGHT_ALTERNATIVES_SEPARATOR.join(rights)
+
                     try:
-                        has_right: bool = user_has_right(right, request_user)
+                        has_right: bool = any(user_has_right(name, request_user) for name in rights)
                     except TRANSIENT_DATABASE_ERRORS:
                         # A lock timeout or a lost connection is "try again", not a failed check
                         raise
                     except Exception as err:
-                        LOGGER.error("[protect] Right check for '%s' failed: %s", right, err, exc_info=True)
+                        LOGGER.error("[protect] Right check for '%s' failed: %s", named, err, exc_info=True)
                         abort(500, RIGHT_CHECK_FAILED_MESSAGE)
 
-                    if not has_right and not APIBlueprint._user_is_excepted(excepted, request_user, kwargs, right):
-                        abort(403, f'User has not the required right {right}')
+                    if not has_right and not APIBlueprint._user_is_excepted(excepted, request_user, kwargs, named):
+                        abort(403, f'User has not the required right {named}')
 
                 return f(*args, **kwargs)
 

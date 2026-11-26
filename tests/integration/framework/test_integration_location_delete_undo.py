@@ -81,11 +81,12 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
 
 
 def _state(nodes, objects) -> tuple[list, list]:
-    """The test's nodes and objects as stored, without _id."""
+    """The test's nodes and objects as stored, without _id and the derived scope block (checked on its own)."""
     def _clean(collection, ids):
         stored = collection.find({'public_id': {'$in': ids}})
 
-        return sorted(({k: v for k, v in d.items() if k != '_id'} for d in stored), key=lambda d: d['public_id'])
+        return sorted(({k: v for k, v in d.items() if k not in ('_id', '_scope')} for d in stored),
+                      key=lambda d: d['public_id'])
 
     return (_clean(nodes, [TOP_NODE_ID, DOOMED_NODE_ID, CHILD_NODE_ID]),
             _clean(objects, [DOOMED_OBJECT_ID, CHILD_OBJECT_ID]))
@@ -116,3 +117,6 @@ def test_a_failed_field_write_is_undone_and_the_retry_succeeds(seeded, monkeypat
     assert nodes.find_one({'public_id': DOOMED_NODE_ID}) is None
     assert nodes.find_one({'public_id': CHILD_NODE_ID})['parent'] == TOP_NODE_ID
     assert objects.find_one({'public_id': CHILD_OBJECT_ID})['fields'][0]['value'] == TOP_NODE_ID
+    # The child's chain lost the deleted location
+    assert objects.find_one({'public_id': CHILD_OBJECT_ID})['_scope']['locations'] == [
+        nodes.find_one({'public_id': TOP_NODE_ID})['object_id']]

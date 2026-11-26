@@ -31,17 +31,24 @@ from cmdb.models.access_model import AccessAssignmentKey, CmdbAccessAssignment, 
 from cmdb.utils import keep_omitted_keys
 from cmdb.framework.access_rules import AccessRuleMessage, scope_role_in_use
 from cmdb.interface.rest_api.routes.access_routes.access_change_guard import guard_role_update
+from cmdb.interface.rest_api.routes.access_routes.access_delegation import delegable_role_ids
+from cmdb.interface.rest_api.routes.access_routes.access_scope_guard import guard_role_scope_change
 from cmdb.interface.rest_api.routes.access_routes.access_payloads import abort_if_beyond_own_reach, scope_role_payload
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import GetSingleResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
-from cmdb.interface.rest_api.routes.routes_helper import abort_on_problems, request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import (
+    abort_on_problems,
+    read_boolean_query_param,
+    request_wants_body,
+)
 from cmdb.interface.rest_api.routes.access_routes.access_route_constants import (
     SCOPE_ROLE_CREATE_SCHEMA,
     SCOPE_ROLE_SEARCHABLE_FIELDS,
     SCOPE_ROLE_UPDATE_SCHEMA,
+    WITHIN_REACH_PARAM,
     AccessRightName,
     AccessUsageKey,
 )
@@ -147,16 +154,27 @@ def create_scope_role(data: dict[str, Any], request_user: CmdbUser) -> Response:
 @handle_route_errors("while retrieving the scope roles")
 def get_scope_roles(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET`/`HEAD` route for one page of the scope roles - ``?filter=``, ``?search=``, ``?sort=``, paging
+    HTTP `GET`/`HEAD` route for one page of the scope roles - ``?filter=``, ``?search=``, ``?sort=``, paging, and
+    ``?within_reach=true`` for only the roles the caller may hand out as a delegate (every role for an
+    administrator) - ahead of the client's filter
 
     Args:
         params (CollectionParameters): The collection parameters
         request_user (CmdbUser): The caller
 
+    Raises:
+        HTTPException: 400 for a ``within_reach`` that is neither true nor false
+
     Returns:
         GetMultiResponse: The page and its total
     """
-    return list_response(_manager(request_user), CmdbScopeRole, params, SCOPE_ROLE_SEARCHABLE_FIELDS)
+    manager: ScopeRolesManager = _manager(request_user)
+    condition: dict[str, Any] | None = None
+
+    if read_boolean_query_param(WITHIN_REACH_PARAM, False):
+        condition = {ScopeRoleKey.PUBLIC_ID.value: {'$in': delegable_role_ids(request_user, manager.all_roles())}}
+
+    return list_response(manager, CmdbScopeRole, params, SCOPE_ROLE_SEARCHABLE_FIELDS, condition)
 
 
 @scope_roles_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
@@ -242,6 +260,7 @@ def update_scope_role(public_id: int, data: dict[str, Any], request_user: CmdbUs
                           for assignment in assignments.assignments_of_role(public_id)]
     abort_if_beyond_own_reach(request_user, public_id, payload, holders)
     guard_role_update(request_user, public_id, payload)
+    guard_role_scope_change(request_user, public_id, payload)
 
     return update_response(manager, CmdbScopeRole, public_id, payload, _name_taken(payload))
 

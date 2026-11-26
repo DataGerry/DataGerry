@@ -69,7 +69,7 @@ from cmdb.models.type_model.person_selector_rules import person_value_shape_chan
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.type_model.type_constants import DEFAULT_PORT_SECTION_INDEX, MIN_PORT_SECTION_INDEX
-from cmdb.security.acl.helpers import has_access_control, has_type_document_access
+from cmdb.security.acl.helpers import has_type_document_reach, type_reachable_for
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.user_model.cmdb_user import CmdbUser
@@ -397,10 +397,11 @@ def is_type_readable(target_type: CmdbType | dict[str, Any], request_user: CmdbU
     Returns:
         bool: True when the caller may read the type
     """
+    # A Type is readable to whoever may view some of its objects - a conditional assignment counts (phase 9, R23)
     if isinstance(target_type, CmdbType):
-        return has_access_control(target_type, request_user, AccessControlPermission.READ)
+        return type_reachable_for(target_type.public_id, request_user, AccessControlPermission.READ)
 
-    return has_type_document_access(target_type, request_user, AccessControlPermission.READ)
+    return has_type_document_reach(target_type, request_user, AccessControlPermission.READ)
 
 
 def abort_unless_type_readable(target_type: CmdbType | dict[str, Any], request_user: CmdbUser) -> None:

@@ -81,6 +81,7 @@ CHANGE_GUARDS: list[str] = [
     'guard_selectable_as_parent_change',
     'guard_uses_ports_change',
     'guard_person_selector_narrowing',
+    'guard_scope_field_change',
 ]
 
 

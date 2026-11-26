@@ -33,7 +33,8 @@ VIEW: str = 'base.access.view'
 FIELD_CLASS_EDIT: str = 'base.access.fieldclass.edit'
 SCOPE_ROLE_EDIT: str = 'base.access.scoperole.edit'
 ASSIGNMENT_EDIT: str = 'base.access.assignment.edit'
-SPECIFIC: list[str] = [VIEW, FIELD_CLASS_EDIT, SCOPE_ROLE_EDIT, ASSIGNMENT_EDIT]
+ASSIGNMENT_DELEGATE: str = 'base.access.assignment.delegate'
+SPECIFIC: list[str] = [VIEW, FIELD_CLASS_EDIT, SCOPE_ROLE_EDIT, ASSIGNMENT_EDIT, ASSIGNMENT_DELEGATE]
 WILDCARDS: list[str] = ['base.access.*', 'base.access.fieldclass.*', 'base.access.scoperole.*',
                         'base.access.assignment.*']
 GROUP_ID: int = 7
@@ -56,7 +57,7 @@ class TestTheCatalogue:
     """Where the rights sit and how they are named."""
 
     def test_the_branch_holds_exactly_these_rights(self) -> None:
-        """Four rights and four wildcards"""
+        """Five rights and four wildcards"""
         assert sorted(right.name for right in flat_rights_tree(ACCESS_RIGHTS)) == sorted(SPECIFIC + WILDCARDS)
 
     def test_the_branch_is_part_of_the_catalogue(self) -> None:
@@ -69,6 +70,7 @@ class TestTheCatalogue:
         (FIELD_CLASS_EDIT, FieldClassRight, 'fieldclass.edit'),
         (SCOPE_ROLE_EDIT, ScopeRoleRight, 'scoperole.edit'),
         (ASSIGNMENT_EDIT, AssignmentRight, 'assignment.edit'),
+        (ASSIGNMENT_DELEGATE, AssignmentRight, 'assignment.delegate'),
     ])
     def test_the_family_names_and_labels_each_right(self, name: str, family: type, label: str) -> None:
         """Built name-first from its family; every right describes what it unlocks"""
@@ -91,6 +93,7 @@ class TestWhoHoldsThem:
         ('base.access.fieldclass.*', FIELD_CLASS_EDIT),
         ('base.access.scoperole.*', SCOPE_ROLE_EDIT),
         ('base.access.assignment.*', ASSIGNMENT_EDIT),
+        ('base.access.assignment.*', ASSIGNMENT_DELEGATE),
     ])
     def test_a_family_wildcard_grants_its_edit_right(self, held: str, asked: str) -> None:
         """fieldclass.* grants fieldclass.edit"""
@@ -103,8 +106,10 @@ class TestWhoHoldsThem:
         (VIEW, FIELD_CLASS_EDIT),
         ('base.user-management.*', ASSIGNMENT_EDIT),
         ('base.framework.*', SCOPE_ROLE_EDIT),
+        (ASSIGNMENT_EDIT, ASSIGNMENT_DELEGATE),
+        (ASSIGNMENT_DELEGATE, ASSIGNMENT_EDIT),
     ], ids=['class-not-role', 'role-not-assignment', 'assignment-not-view', 'view-not-edit', 'user-management',
-            'framework'])
+            'framework', 'edit-not-delegate', 'delegate-not-edit'])
     def test_no_other_right_grants_it(self, held: str, asked: str) -> None:
         """Siblings, the view right and the other areas grant nothing here"""
         assert not _grants(held, asked)

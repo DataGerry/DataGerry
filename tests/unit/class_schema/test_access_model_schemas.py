@@ -34,6 +34,8 @@ from cmdb.models.access_model import (
     MAX_ROLE_TYPES,
     NAME_MAX_LENGTH,
     NOT_BLANK_MSG,
+    SCOPE_SHAPE_MSG,
+    UNCONDITIONAL_SCOPE,
     AccessAssignmentKey,
     FieldClassKey,
     ScopeRoleKey,
@@ -181,7 +183,7 @@ class TestScopeRoleRest:
 
 
 class TestAssignment:
-    """Two ids and the unconditional scope."""
+    """Two ids and a scope: '*' or a list."""
 
     def test_the_minimal_assignment(self) -> None:
         """Group, role, '*'; the description defaults to ''"""
@@ -191,13 +193,20 @@ class TestAssignment:
         assert validator.document[AccessAssignmentKey.DESCRIPTION.value] == ''
 
     @pytest.mark.parametrize('scope', [{'location': {'within': 1}}, 'all', '', None],
-                             ids=['condition', 'other-string', 'empty', 'null'])
+                             ids=['object', 'other-string', 'empty', 'null'])
     def test_any_other_scope_is_refused_with_the_reason(self, scope: Any) -> None:
-        """Only '*' until the scope compiler"""
+        """'*' or a list - nothing else"""
         document: dict[str, Any] = {**ASSIGNMENT, AccessAssignmentKey.SCOPE.value: scope}
 
-        assert 'not available yet' in _errors(get_cmdb_access_assignment_schema(), document,
-                                              AccessAssignmentKey.SCOPE.value)
+        assert SCOPE_SHAPE_MSG.format(unconditional=UNCONDITIONAL_SCOPE) in _errors(
+            get_cmdb_access_assignment_schema(), document, AccessAssignmentKey.SCOPE.value)
+
+    @pytest.mark.parametrize('scope', [[], [{'field': 'size', 'op': 'exists'}], [{'unknown': 1}]],
+                             ids=['empty-list', 'condition', 'malformed-condition'])
+    def test_a_list_passes_the_schema(self, scope: Any) -> None:
+        """Its conditions are the write rules' to judge against the role's Types (R29)"""
+        assert _validator(get_cmdb_access_assignment_schema(),
+                          {**ASSIGNMENT, AccessAssignmentKey.SCOPE.value: scope}).errors == {}
 
     def test_the_scope_is_required(self) -> None:
         """No default - a client says which objects"""

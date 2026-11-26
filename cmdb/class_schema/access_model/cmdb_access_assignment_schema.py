@@ -17,8 +17,8 @@
 Validation schema for CmdbAccessAssignment
 
 A CmdbAccessAssignment grants a user group a scope role within a scope (collection ``access.assignments``). The
-scope is only the unconditional ``*`` - every object of the role's Types - until the scope compiler brings the
-conditions; the same group, role and scope are stored once.
+scope is the unconditional ``*`` - every object of the role's Types - or a list of conditions the assignment payload
+judges against the role's Types (phase 9); the same group, role and scope are stored once.
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbAccessAssignment.SCHEMA.
@@ -26,7 +26,7 @@ consumed as CmdbAccessAssignment.SCHEMA.
 from typing import Any
 
 from cmdb.class_schema.id_schema_helper import get_id_rule
-from cmdb.class_schema.access_model.access_schema_helper import check_unconditional_scope, get_description_rule
+from cmdb.class_schema.access_model.access_schema_helper import check_scope_type, get_description_rule
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_cmdb_access_assignment_schema() -> dict[str, Any]:
@@ -48,9 +48,9 @@ def get_cmdb_access_assignment_schema() -> dict[str, Any]:
         },
         AccessAssignmentKey.GROUP_ID.value: get_id_rule(),  # public_id of the CmdbUserGroup it grants to
         AccessAssignmentKey.ROLE_ID.value: get_id_rule(),  # public_id of the CmdbScopeRole it grants
-        AccessAssignmentKey.SCOPE.value: {  # The objects it applies to - only '*' (every object) for now
+        AccessAssignmentKey.SCOPE.value: {  # The objects it applies to - '*' (every object) or a list of conditions
             'required': True,
-            'check_with': check_unconditional_scope,
+            'check_with': check_scope_type,
         },
         AccessAssignmentKey.DESCRIPTION.value: get_description_rule(),  # What the assignment is for
     }

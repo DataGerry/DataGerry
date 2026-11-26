@@ -54,11 +54,13 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.objects_manager_constants import TYPE_GROUP_COUNT_KEY, TYPE_GROUP_ID_KEY
 from cmdb.manager.objects_config_item_helper import config_item_criteria
+from cmdb.manager.object_scope_blocks import ObjectScopeBlocks
 
 from cmdb.models.object_model import (
     CmdbObject,
     CmdbObjectKey,
     CmdbObjectFieldKey,
+    CmdbObjectScopeKey,
     ObjectWriteVerb,
 )
 from cmdb.models.object_group_model import ObjectReferenceType
@@ -66,7 +68,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.builder import build_denied_types_condition, build_scope_criteria, resolve_denied_type_ids
-from cmdb.security.acl.helpers import verify_access
+from cmdb.security.acl.helpers import verify_object_access, verify_type_reach
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.results import IterationResult
 from cmdb.manager.objects_reference_helper import (
@@ -144,9 +146,9 @@ class ObjectsManager(BaseManager):
     read helpers built on top of it: reference resolution (field- and MDS-based) via ``references``,
     per-type grouping and counting, batched type/object lookups used to avoid N+1 access checks,
     summary-line composition, and the delete-time cascades that scrub object references and remove
-    dependent ISMS RiskAssessments / ControlMeasureAssignments. Access control is enforced through
-    ``verify_access`` against each object's CmdbType, and every failure is surfaced as a typed
-    ``ObjectsManager*Error``
+    dependent ISMS RiskAssessments / ControlMeasureAssignments. Access control is enforced per object
+    (``verify_object_access`` - the object's scope conditions judged) on reads, and on writes per Type before ``can()``
+    judges the object (``verify_type_reach``); every failure is surfaced as a typed ``ObjectsManager*Error``
 
     Extends: BaseManager
     """
@@ -208,7 +210,8 @@ class ObjectsManager(BaseManager):
                 f'Objects cannot be {action} because type `{object_type.name}` is deactivated.'
             )
 
-        verify_access(object_type, user, permission)
+        # Type level: the user may write some objects of the Type - can() judges the object itself (phase 9, R25)
+        verify_type_reach(object_type, user, permission)
 
         return object_type
 
@@ -250,8 +253,12 @@ class ObjectsManager(BaseManager):
                 object_type,
             )
 
-            return self.insert(CmdbObject.to_json(new_object), id_from_counter=id_from_counter)
-        except (BaseManagerInsertError, ObjectsManagerGetTypeError, *OBJECT_DOCUMENT_ERRORS) as err:
+            document: dict[str, Any] = CmdbObject.to_json(new_object)
+            ObjectScopeBlocks(self).stamp([document])
+
+            return self.insert(document, id_from_counter=id_from_counter)
+        except (BaseManagerInsertError, BaseManagerIterationError, ObjectsManagerGetTypeError,
+                *OBJECT_DOCUMENT_ERRORS) as err:
             # Not caught, so propagated unchanged: AccessDeniedError, and the two transient errors - re-wrapping
             # those as an insert error would hide that the request can simply be retried (the app answers them
             # 423 / 503, `responses/error_handlers.py`)
@@ -281,6 +288,10 @@ class ObjectsManager(BaseManager):
         modified: int = 0
 
         try:
+            blocks: ObjectScopeBlocks = ObjectScopeBlocks(self)
+            # A Type's statements only remove or rename what an object holds - only a block not empty can change
+            scoped_ids: list[int] = blocks.ids_with_blocks([raw_update.filter_query for raw_update in updates])
+
             for raw_update in updates:
                 result: UpdateResult = self.update_many_raw(
                     filter_query=raw_update.filter_query,
@@ -289,8 +300,10 @@ class ObjectsManager(BaseManager):
                 )
                 modified += result.modified_count
 
+            blocks.refresh(scoped_ids)
+
             return modified
-        except BaseManagerUpdateError as err:
+        except (BaseManagerGetError, BaseManagerIterationError, BaseManagerUpdateError) as err:
             LOGGER.error("[apply_raw_updates] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
 
@@ -320,14 +333,13 @@ class ObjectsManager(BaseManager):
             dict[str, Any] | Cmdbobject | None: The CmdbObject either as object or dict if found else None
         """
         try:
-            requested_object = self.get_one(public_id)
+            stored_document: dict[str, Any] | None = self.get_one(public_id)
 
-            if requested_object:
-                requested_object = CmdbObject.from_data(requested_object)
+            if stored_document:
+                requested_object = CmdbObject.from_data(stored_document)
 
-                # The type is read only to judge the ACL - a read without a user and a permission needs none
-                if user and permission:
-                    verify_access(self.get_object_type(requested_object.type_id), user, permission)
+                # The object itself is judged - its scope conditions included (phase 9, R25)
+                verify_object_access(stored_document, user, permission)
 
                 return CmdbObject.to_json(requested_object) if as_dict else requested_object
 
@@ -482,12 +494,12 @@ class ObjectsManager(BaseManager):
                 cur_type = types_lookup.get(cur_object.type_id)
 
                 if cur_type is None and user and permission:
-                    # No type to judge the ACL by: refused as a failed read, as it was when verify_access
+                    # No type to judge the ACL by: refused as a failed read, as it was when the type check
                     # failed on the missing type inside the catch-all
                     raise ObjectsManagerGetError(missing_type_message(cur_object))
 
                 try:
-                    verify_access(cur_type, user, permission)
+                    verify_object_access(CmdbObject.to_json(cur_object), user, permission)
                     valid_objects.append(cur_object)
                 except AccessDeniedError:
                     # Skip objects the user does not have access to (other errors propagate)
@@ -1086,16 +1098,22 @@ class ObjectsManager(BaseManager):
             else:
                 type_id = instance.get('type_id')
 
-            known_type: CmdbType | None = (
-                object_type if object_type is not None and object_type.public_id == type_id else None
-            )
             self.guard_writable_type(
                 type_id, user, permission, ObjectsManagerUpdateError, ObjectWriteVerb.UPDATED.value,
-                object_type=known_type,
+                object_type=object_type if object_type is not None and object_type.public_id == type_id else None,
             )
 
-            return self.update(write_filter, instance).matched_count > 0
-        except (BaseManagerGetError, BaseManagerUpdateError, ObjectsManagerGetTypeError) as err:
+            instance.pop(CmdbObjectScopeKey.BLOCK.value, None)
+            matched: bool = self.update(write_filter, instance).matched_count > 0
+
+            if matched:
+                # The object's own block, and the blocks naming it as their network (a subnet's supernet may have
+                # changed); a compare-and-swap that missed wrote nothing, so nothing is recomputed
+                ObjectScopeBlocks(self).refresh_naming([public_id], (CmdbObjectScopeKey.NETWORKS,))
+
+            return matched
+        except (BaseManagerGetError, BaseManagerIterationError, BaseManagerUpdateError,
+                ObjectsManagerGetTypeError) as err:
             LOGGER.error("[update_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
 
@@ -1248,7 +1266,10 @@ class ObjectsManager(BaseManager):
                 ("multi_data_sections.values.data", "multi_data_sections.$[].values.$[].data.$[f].value"),
             ):
                 self.update_many_raw(**self._reference_scrub(rows_path, value_path, ids_filter))
-        except BaseManagerUpdateError as err:
+
+            # The objects placed below a deleted location, or in a deleted network
+            ObjectScopeBlocks(self).refresh_naming(public_ids if isinstance(public_ids, list) else [public_ids])
+        except (BaseManagerGetError, BaseManagerIterationError, BaseManagerUpdateError) as err:
             LOGGER.error("[delete_all_object_references] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
 
@@ -1309,7 +1330,8 @@ class ObjectsManager(BaseManager):
                 update={"$set": {"fields.$[f].value": parent_id}},
                 array_filters=[{"f.type": FieldType.LOCATION.value}],
             )
-        except BaseManagerUpdateError as err:
+            ObjectScopeBlocks(self).refresh(object_ids)
+        except (BaseManagerIterationError, BaseManagerUpdateError) as err:
             LOGGER.error("[set_location_field_for_objects] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
 

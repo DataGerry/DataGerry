@@ -577,8 +577,14 @@ class TestHandleDeleteInvalidObjectRelations:
     @staticmethod
     def _run(relations_manager: MagicMock, logs_manager: MagicMock,
              public_ids: list[int] | None = None) -> None:
-        """Runs the cascade with the two managers handed out by the provider."""
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
+        """
+        Runs the cascade with the two managers handed out by the provider, and an objects manager for the scope blocks
+        of the other ends - its reads find nothing, so nothing is written
+        """
+        objects_manager = MagicMock()
+        objects_manager.aggregate_all.return_value = []
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager',
+                   side_effect=[relations_manager, logs_manager, objects_manager]):
             handle_delete_invalid_object_relations(MagicMock(), public_ids or [DELETED_OBJECT_ID])
 
     def test_no_objects_resolves_nothing(self) -> None:

@@ -29,7 +29,13 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.access_model import AccessAssignmentKey, ScopeRoleKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.access_engine import TypeSet
-from cmdb.framework.access_rules import access_change_problems, changed_types, involved_types, type_states
+from cmdb.framework.access_rules import (
+    TypeAccessState,
+    access_change_problems,
+    changed_types,
+    involved_types,
+    type_states,
+)
 from cmdb.interface.rest_api.routes.routes_helper import abort_on_problems, read_boolean_query_param
 from cmdb.interface.rest_api.routes.access_routes.access_route_constants import UNRESTRICT_PARAM
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -75,6 +81,36 @@ def read_access_state(request_user: CmdbUser, extra_role_ids: Iterable[int] = ()
     return assignments, {role[ScopeRoleKey.PUBLIC_ID.value]: role for role in roles}
 
 
+def change_states(request_user: CmdbUser, before: AccessState, after: AccessState,
+                  involved_role_ids: Iterable[int]) -> tuple[dict[int, TypeAccessState], dict[int, TypeAccessState]]:
+    """
+    The state of each Type the involved roles name in either version, before and after a change
+
+    Args:
+        request_user (CmdbUser): The caller - the Types are read only when an involved role names every Type
+        before (AccessState): The assignments and roles before the change
+        after (AccessState): The assignments and roles after it
+        involved_role_ids (Iterable[int]): The roles of the changed assignments, or the changed role
+
+    Raises:
+        TypesManagerGetError: When the Types could not be read
+
+    Returns:
+        tuple[dict[int, TypeAccessState], dict[int, TypeAccessState]]: The states before and after
+    """
+    role_ids: list[int] = list(involved_role_ids)
+    involved: TypeSet = involved_types([version[role_id] for version in (before[1], after[1]) for role_id in role_ids
+                                        if role_id in version])
+
+    if involved.every_type:
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        type_ids: list[int] = types_manager.get_all_type_ids()
+    else:
+        type_ids = sorted(involved.ids)
+
+    return type_states(before[0], before[1], type_ids), type_states(after[0], after[1], type_ids)
+
+
 def change_effect(request_user: CmdbUser, before: AccessState, after: AccessState,
                   involved_role_ids: Iterable[int]) -> tuple[list[int], list[int]]:
     """
@@ -92,17 +128,7 @@ def change_effect(request_user: CmdbUser, before: AccessState, after: AccessStat
     Returns:
         tuple[list[int], list[int]]: The newly locked and the newly opened Types, ascending
     """
-    role_ids: list[int] = list(involved_role_ids)
-    involved: TypeSet = involved_types([version[role_id] for version in (before[1], after[1]) for role_id in role_ids
-                                        if role_id in version])
-
-    if involved.every_type:
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-        type_ids: list[int] = types_manager.get_all_type_ids()
-    else:
-        type_ids = sorted(involved.ids)
-
-    return changed_types(type_states(before[0], before[1], type_ids), type_states(after[0], after[1], type_ids))
+    return changed_types(*change_states(request_user, before, after, involved_role_ids))
 
 
 def abort_if_change_refused(request_user: CmdbUser, before: AccessState, after: AccessState,
@@ -166,6 +192,25 @@ def guard_assignment_write(request_user: CmdbUser, stored: dict[str, Any] | None
     Raises:
         HTTPException: 400 naming the Types locked or opened
     """
+    abort_if_change_refused(request_user, *assignment_change(request_user, stored, written))
+
+
+def assignment_change(request_user: CmdbUser, stored: dict[str, Any] | None,
+                      written: dict[str, Any] | None) -> tuple[AccessState, AccessState, list[int]]:
+    """
+    The access state before and after an assignment create (no stored), update or delete (nothing written)
+
+    Args:
+        request_user (CmdbUser): The caller
+        stored (dict[str, Any] | None): The assignment as stored; None for a create
+        written (dict[str, Any] | None): The assignment as it would be stored; None for a delete
+
+    Raises:
+        AccessAssignmentsManagerGetError | ScopeRolesManagerGetError: When a read fails
+
+    Returns:
+        tuple[AccessState, AccessState, list[int]]: Before, after, and the roles involved
+    """
     role_ids: list[int] = [document[AccessAssignmentKey.ROLE_ID.value] for document in (stored, written) if document]
     before: AccessState = read_access_state(request_user, role_ids)
     after: AccessState = without_assignments(before, [stored[AccessAssignmentKey.PUBLIC_ID.value]] if stored else [])
@@ -173,7 +218,7 @@ def guard_assignment_write(request_user: CmdbUser, stored: dict[str, Any] | None
     if written is not None:
         after = (after[0] + [written], after[1])
 
-    abort_if_change_refused(request_user, before, after, role_ids)
+    return before, after, role_ids
 
 
 def guard_role_update(request_user: CmdbUser, role_id: int, written: dict[str, Any]) -> None:

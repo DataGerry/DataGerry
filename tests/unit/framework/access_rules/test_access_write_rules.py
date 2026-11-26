@@ -46,6 +46,8 @@ from cmdb.security.acl.permission import AccessControlPermission
 CLASS_ID: int = 11
 CLASS_NAME: str = 'compliance'
 CALLER: CmdbUser = CmdbUser(public_id=51, user_name='role-editor', active=True, group_ids=[21])
+# A member of the administrator group (1), beside another group
+ADMINISTRATOR: CmdbUser = CmdbUser(public_id=52, user_name='admin-editor', active=True, group_ids=[21, 1])
 ROLE_ID: int = 21
 GROUP_ID: int = 4
 STORED_CLASS: dict[str, Any] = {'public_id': CLASS_ID, 'name': CLASS_NAME, 'label': 'Compliance'}
@@ -144,6 +146,16 @@ class TestScopeRoleReferences:
         types_manager.get_denied_type_ids.assert_called_once_with(CALLER, AccessControlPermission.READ)
         classes_manager.find_existing_names.assert_called_once_with([CLASS_NAME])
 
+    def test_an_administrator_names_a_hidden_type(self) -> None:
+        """Only a missing Type is refused - the denied ones are not read, so administrators can re-grant themselves"""
+        types_manager, classes_manager = MagicMock(), MagicMock()
+        types_manager.get_existing_type_ids.return_value = {3, 5}
+
+        problems = scope_role_reference_problems({'types': [3, 5, 8]}, types_manager, classes_manager, ADMINISTRATOR)
+
+        assert problems == [AccessRuleMessage.UNKNOWN_TYPES.value.format(ids=[8])]
+        types_manager.get_denied_type_ids.assert_not_called()
+
     @pytest.mark.parametrize('role', [{'types': '*'}, {'types': [], 'field_classes': []}, {'description': 'x'}],
                              ids=['all-types', 'empty', 'not-sent'])
     def test_nothing_to_judge_reads_nothing(self, role: dict[str, Any]) -> None:
@@ -189,6 +201,17 @@ class TestCanonicalScope:
         canonical_scope(scope)['b'][0]['e'] = 3
 
         assert scope == {'b': [{'d': 1, 'c': 2}], 'a': 0}
+
+    def test_a_condition_list_has_one_spelling(self) -> None:
+        """Conditions and in values sorted - two spellings meet the unique index as one (phase 9, R5)"""
+        one = canonical_scope([{'op': 'in', 'field': 'n', 'value': [2, 1]}, {'field': 'a', 'op': 'exists'}])
+        other = canonical_scope([{'field': 'a', 'op': 'exists'}, {'field': 'n', 'op': 'in', 'value': [1, 2]}])
+
+        assert one == other
+
+    def test_a_malformed_list_keeps_its_order(self) -> None:
+        """The schema refuses it; nothing is reordered"""
+        assert canonical_scope([{'b': 1, 'a': 2}, 'x']) == [{'a': 2, 'b': 1}, 'x']
 
 
 class TestAssignmentRules:

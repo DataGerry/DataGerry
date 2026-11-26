@@ -118,6 +118,4 @@ NOT_BLANK_MSG: str = 'must not be blank'
 VALUES_NOT_UNIQUE_MSG: str = 'names a value more than once: {values}'
 ROLE_TYPES_SHAPE_MSG: str = "must be '{all_types}' (every Type) or a list of Type ids"
 ROLE_TYPES_TOO_MANY_MSG: str = 'lists more than {limit} Types'
-SCOPE_CONDITIONS_UNAVAILABLE_MSG: str = (
-    "Scope conditions are not available yet - only '{unconditional}' (every object of the role's Types) is accepted"
-)
+SCOPE_SHAPE_MSG: str = "A scope is '{unconditional}' (every object of the role's Types) or a list of conditions"

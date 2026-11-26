@@ -94,6 +94,7 @@ from cmdb.interface.rest_api.routes.user_management_routes.person_sync_hook_help
     sync_regrouped_users,
     write_with_person_sync,
 )
+from cmdb.interface.rest_api.routes.user_management_routes.group_membership_guard import abort_if_adding_groups_beyond
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import (
     GROUP_ADD_RIGHT,
     GROUP_VIEW_RIGHT,
@@ -532,6 +533,9 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         # Moving the members into the administrator group makes them administrators - an administrator's decision
         if params.action == GroupDeleteMode.MOVE and params.group_id == ADMIN_GROUP_ID:
             abort_unless_administrator(request_user, ASSIGN_ADMIN_GROUP_ACTION)
+        # Nor into a group holding more than the caller - judged when the move adds anyone (its sole members)
+        if params.action == GroupDeleteMode.MOVE and users_manager.read_group_members(public_id)[1]:
+            abort_if_adding_groups_beyond(request_user, [params.group_id])
 
         # No action leaves the members as they are - refused while there are any, before anything is written
         abort_if_members_would_be_stranded(users_manager, public_id, params.action)

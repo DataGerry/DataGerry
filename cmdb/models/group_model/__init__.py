@@ -23,6 +23,7 @@ from .group_constants import (
     MASTER_RIGHT_NAME,
     GroupKey,
 )
+from .administrator_group import in_administrator_group
 from .cmdb_user_group import CmdbUserGroup
 from .effective_rights import EffectiveRights
 from .group_delete_mode_enum import GroupDeleteMode
@@ -34,6 +35,7 @@ __all__: list[str] = [
     'PROTECTED_GROUP_IDS',
     'MASTER_RIGHT_NAME',
     'GroupKey',
+    'in_administrator_group',
     'CmdbUserGroup',
     'EffectiveRights',
     'GroupDeleteMode',

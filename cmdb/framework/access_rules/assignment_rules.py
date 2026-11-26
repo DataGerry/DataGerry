@@ -25,6 +25,7 @@ from cmdb.manager.scope_roles_manager import ScopeRolesManager
 from cmdb.models.access_model import AccessAssignmentKey
 from cmdb.framework.access_rules.access_rule_constants import AccessRuleMessage
 from cmdb.framework.access_rules.access_rule_reads import clashes
+from cmdb.framework.scope_compiler import canonical_blocks, scope_shape_problems
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -33,7 +34,9 @@ def canonical_scope(scope: Any) -> Any:
     The one spelling a scope is stored in: every document's keys sorted, at every depth, lists kept in their order
 
     The unique index compares stored scopes by equality, and MongoDB compares documents key by key in order - so two
-    spellings of one condition would otherwise both be stored. The unconditional ``*`` is its own spelling
+    spellings of one condition would otherwise both be stored. The unconditional ``*`` is its own spelling; a
+    well-formed condition list also has its conditions and its ``in`` / ``not_in`` values sorted
+    (``scope_compiler.canonical_blocks``)
 
     Args:
         scope (Any): The scope as sent
@@ -43,6 +46,10 @@ def canonical_scope(scope: Any) -> Any:
     """
     if isinstance(scope, dict):
         return {key: canonical_scope(scope[key]) for key in sorted(scope)}
+
+    # A well-formed condition list: its conditions and the values of in / not_in sorted too (phase 9, R5)
+    if isinstance(scope, list) and scope and not scope_shape_problems(scope):
+        return canonical_blocks(scope)
 
     if isinstance(scope, list):
         return [canonical_scope(item) for item in scope]

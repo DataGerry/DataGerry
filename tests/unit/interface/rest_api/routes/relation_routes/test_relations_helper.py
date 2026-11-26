@@ -29,6 +29,7 @@ from werkzeug.exceptions import HTTPException
 from cmdb.models.log_model import LogInteraction
 from cmdb.models.relation_model import RelationDiffKey, RelationKey
 from cmdb.errors.manager.object_relation_logs_manager import ObjectRelationLogsManagerBuildError
+from cmdb.interface.rest_api.routes.relation_routes import relations_helper
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     abort_if_object_relation_pair_duplicate,
     abort_if_object_relation_pair_taken,
@@ -344,7 +345,28 @@ class TestCascadeRelationUpdate:
 # --------------------------------------------------- reconcile_object_relations ------------------------------------- #
 
 class TestReconcileObjectRelations:
-    """The relation update's cascade, with one DELETE history entry per instance it deleted"""
+    """
+    The relation update's cascade, with one DELETE history entry per instance it deleted - and the scope blocks of
+    the deleted instances' ends refreshed, also after a failure part-way
+    """
+
+    @pytest.fixture(autouse=True)
+    def _scope_blocks(self, monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+        """The request's scope blocks, stood in"""
+        blocks = MagicMock()
+        monkeypatch.setattr(relations_helper, 'relation_scope_blocks', lambda _user: blocks)
+
+        return blocks
+
+    def test_the_deleted_instances_ends_are_refreshed(self, _scope_blocks: MagicMock) -> None:
+        """What the cascade deleted, handed over"""
+        document = {'public_id': 1, 'relation_parent_id': 5, 'relation_child_id': 6}
+        objects_manager, logs_manager = MagicMock(), MagicMock()
+        objects_manager.delete_invalidated_object_relations.side_effect = self._deleting(document)
+
+        self._removing_parent_b(objects_manager, logs_manager)
+
+        _scope_blocks.try_refresh_endpoints.assert_called_once_with([document])
 
     @staticmethod
     def _removing_parent_b(objects_manager: MagicMock, logs_manager: MagicMock) -> int:

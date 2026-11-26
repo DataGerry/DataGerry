@@ -23,6 +23,9 @@ and no scope role or assignment. What each user may do is read first by the type
 boot, and the REST app - deciding through the access engine only - is asked for each user and Type: the Type by id
 (200 / 403), its ``allowed_operations`` and the ``acl`` it answers, the Type listing under READ and under CREATE, the
 object by id (200 / 403). Every answer must be the one before. The report must name the Types and the dropped group.
+Then ``updater_20261127`` runs, as at boot after it: the group that could set a type ACL (``base.framework.type.edit``)
+may view the access rules - its member opens the migration report, which names it under ``rights`` - and no other
+group gains a right.
 
 Run on the session database: the version stamp is restored and exactly the migration's documents removed afterwards
 """
@@ -34,6 +37,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.updater.versions.updater_20261125 import Update20261125
+from cmdb.database.updater.versions.updater_20261127 import Update20261127
 from cmdb.framework.access_engine import PERMISSION_OPERATIONS, acl_allows
 from cmdb.models.access_model import (
     MIGRATION_REPORT_COLLECTION,
@@ -58,6 +62,9 @@ OPERATORS: int = 97801
 AUDITORS: int = 97802
 GUESTS: int = 97803
 GONE: int = 97809
+# Could set a type ACL before the switch; holds no ACL entry
+EDITORS: int = 97804
+EDITOR_ID: int = 97825
 SHARED_TYPE: int = 97811
 WRITE_TYPE: int = 97812
 LOCKED_TYPE: int = 97813
@@ -66,6 +73,7 @@ PLAIN_TYPE: int = 97815
 TYPE_IDS: list[int] = [SHARED_TYPE, WRITE_TYPE, LOCKED_TYPE, OFF_TYPE, PLAIN_TYPE]
 OBJECT_ID_OFFSET: int = 100
 RIGHTS: list[str] = [TypeRight.VIEW.value, ObjectRightName.VIEW.value]
+TYPE_EDIT_RIGHT: str = TypeRight.EDIT.value
 
 USERS: dict[int, list[int]] = {
     97821: [OPERATORS],
@@ -125,7 +133,11 @@ def fixture_migrated(database_manager: MongoDatabaseManager, database_name: str)
     stamp: dict[str, Any] | None = database[SETTINGS].find_one({'_id': UPDATER_ID})
     database[CmdbUserGroup.COLLECTION].insert_many([
         {'public_id': group_id, 'name': f'release-check-{group_id}', 'label': 'G', 'rights': RIGHTS}
-        for group_id in (OPERATORS, AUDITORS, GUESTS)])
+        for group_id in (OPERATORS, AUDITORS, GUESTS)] + [
+        {'public_id': EDITORS, 'name': 'release-check-editors', 'label': 'E', 'rights': RIGHTS + [TYPE_EDIT_RIGHT]}])
+    database[CmdbUser.COLLECTION].insert_one({'public_id': EDITOR_ID, 'user_name': 'release-check-editor',
+                                              'active': True, 'group_ids': [EDITORS],
+                                              'registration_time': datetime.now(timezone.utc)})
     database[CmdbUser.COLLECTION].insert_many([
         {'public_id': user_id, 'user_name': f'release-check-{user_id}', 'active': True, 'group_ids': groups,
          'registration_time': datetime.now(timezone.utc)} for user_id, groups in USERS.items()])
@@ -138,6 +150,7 @@ def fixture_migrated(database_manager: MongoDatabaseManager, database_name: str)
 
     Update20261125(database_manager, database_name).start_update()
     report: dict[str, Any] = database[MIGRATION_REPORT_COLLECTION].find_one({'_id': TYPE_ACL_MIGRATION_REPORT_ID})
+    Update20261127(database_manager, database_name).start_update()
 
     yield {'before': before, 'report': report}
 
@@ -148,8 +161,8 @@ def fixture_migrated(database_manager: MongoDatabaseManager, database_name: str)
     database[MIGRATION_REPORT_COLLECTION].delete_many({})
     database[CmdbObject.COLLECTION].delete_many({'public_id': {'$in': [t + OBJECT_ID_OFFSET for t in TYPE_IDS]}})
     database[CmdbType.COLLECTION].delete_many({'public_id': {'$in': TYPE_IDS}})
-    database[CmdbUser.COLLECTION].delete_many({'public_id': {'$in': list(USERS)}})
-    database[CmdbUserGroup.COLLECTION].delete_many({'public_id': {'$in': [OPERATORS, AUDITORS, GUESTS]}})
+    database[CmdbUser.COLLECTION].delete_many({'public_id': {'$in': [*USERS, EDITOR_ID]}})
+    database[CmdbUserGroup.COLLECTION].delete_many({'public_id': {'$in': [OPERATORS, AUDITORS, GUESTS, EDITORS]}})
     if stamp is None:
         database[SETTINGS].delete_one({'_id': UPDATER_ID})
     else:
@@ -222,3 +235,22 @@ def test_the_report_names_the_types_and_the_dropped_group(rest_api, migrated: di
     assert (entries[SHARED_TYPE]['dropped_group_ids'], entries[WRITE_TYPE]['dropped_group_ids'],
             entries[LOCKED_TYPE]['dropped_group_ids']) == ([], [GONE], [GONE])
     assert {OFF_TYPE, PLAIN_TYPE} <= set(report['inactive_type_ids'])
+
+
+def test_the_former_type_acl_editors_may_view_the_access_rules(rest_api, migrated: dict[str, Any],
+                                                               database_manager: MongoDatabaseManager,
+                                                               database_name: str) -> None:
+    """The editors' group gained the view right, no other group anything; its member reads the report's rights"""
+    groups = database_manager.connector.client[database_name][CmdbUserGroup.COLLECTION]
+    rights: dict[int, list[str]] = {group['public_id']: group['rights'] for group in groups.find(
+        {'public_id': {'$in': [OPERATORS, AUDITORS, GUESTS, EDITORS]}})}
+    editor = CmdbUser(public_id=EDITOR_ID, user_name='release-check-editor', active=True, group_ids=[EDITORS])
+
+    response = rest_api.get('/access/migration_report', user=editor)
+
+    assert rights == {OPERATORS: RIGHTS, AUDITORS: RIGHTS, GUESTS: RIGHTS,
+                      EDITORS: RIGHTS + [TYPE_EDIT_RIGHT, 'base.access.view']}
+    assert response.status_code == HTTPStatus.OK
+    assert response.get_json()['result']['rights']['groups'] == [{'group_id': EDITORS,
+                                                                  'granted': ['base.access.view']}]
+

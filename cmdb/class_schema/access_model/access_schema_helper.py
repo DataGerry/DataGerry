@@ -30,7 +30,7 @@ __all__: list[str] = [
     'check_unique_values',
     'check_not_reserved_field_class',
     'check_role_types',
-    'check_unconditional_scope',
+    'check_scope_type',
     'get_description_rule',
     'get_field_class_name_rule',
 ]
@@ -129,9 +129,10 @@ def check_role_types(field: str, value: Any, error: Callable[[str, str], None]) 
     check_unique_ids(field, value, error)
 
 
-def check_unconditional_scope(field: str, value: Any, error: Callable[[str, str], None]) -> None:
+def check_scope_type(field: str, value: Any, error: Callable[[str, str], None]) -> None:
     """
-    Accepts only the unconditional scope - the scope conditions arrive with the scope compiler
+    Accepts the unconditional scope or a list - what the conditions in it say is the assignment payload's to judge
+    against the role's Types (phase 9, R29)
 
     Args:
         field (str): The field being validated
@@ -139,10 +140,10 @@ def check_unconditional_scope(field: str, value: Any, error: Callable[[str, str]
         error (Callable[[str, str], None]): Cerberus' error reporter
     """
     # pylint: disable=import-outside-toplevel
-    from cmdb.models.access_model.access_constants import SCOPE_CONDITIONS_UNAVAILABLE_MSG, UNCONDITIONAL_SCOPE
+    from cmdb.models.access_model.access_constants import SCOPE_SHAPE_MSG, UNCONDITIONAL_SCOPE
 
-    if value != UNCONDITIONAL_SCOPE:
-        error(field, SCOPE_CONDITIONS_UNAVAILABLE_MSG.format(unconditional=UNCONDITIONAL_SCOPE))
+    if value != UNCONDITIONAL_SCOPE and not isinstance(value, list):
+        error(field, SCOPE_SHAPE_MSG.format(unconditional=UNCONDITIONAL_SCOPE))
 
 
 def get_description_rule() -> dict[str, Any]:

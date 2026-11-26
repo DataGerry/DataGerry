@@ -48,3 +48,6 @@ PROTECT_WITHOUT_REQUEST_USER_MESSAGE: str = 'The route could not identify the re
 
 # The user's groups could not be read, so the right could not be checked - distinct from a missing right
 RIGHT_CHECK_FAILED_MESSAGE: str = 'The rights of the request user could not be checked!'
+
+# How a refusal names a route's alternative rights (``protect(right=(a, b))``)
+RIGHT_ALTERNATIVES_SEPARATOR: str = ' or '

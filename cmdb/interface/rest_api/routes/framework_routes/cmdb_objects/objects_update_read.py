@@ -31,7 +31,7 @@ from flask import abort
 from cmdb.manager import ObjectsManager
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
-from cmdb.security.acl.helpers import verify_access
+from cmdb.security.acl.helpers import verify_object_access
 from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.manager import BaseManagerGetError
@@ -147,6 +147,7 @@ def read_update_target(obj_id: int, context: ObjectWriteContext) -> UpdateTarget
     current_type: CmdbType = resolve_object_type(
         context.objects_manager, current_object.get_type_id(), context.type_cache,
     )
-    verify_access(current_type, context.request_user, AccessControlPermission.READ)
+    # The stored object itself - its scope conditions judged (phase 9, R25)
+    verify_object_access(stored_document, context.request_user, AccessControlPermission.READ)
 
     return UpdateTarget(stored_document, current_object, current_type)

@@ -137,18 +137,21 @@ def permission_operations(permissions: AccessControlPermission | Iterable[Access
     return operation_list(PERMISSION_OPERATIONS[permission] for permission in listed)
 
 
-def denied_for(grants: AccessGrants, operation: ScopeOperation) -> DeniedTypes:
+def denied_for(grants: AccessGrants, operation: ScopeOperation, reachable: bool = False) -> DeniedTypes:
     """
     The Types the grants deny one operation on: restricted and not granted
 
     Args:
         grants (AccessGrants): The user's grants
         operation (ScopeOperation): The operation
+        reachable (bool): Whether a Type granted only conditionally counts as granted - the Type-level "on some
+            objects" answer (R23); by default it is denied (fail closed, R25)
 
     Returns:
         DeniedTypes: The denial
     """
-    granted: TypeSet = grants.granted[operation]
+    granted: TypeSet = grants.reachable.get(operation, grants.granted[operation]) if reachable \
+        else grants.granted[operation]
 
     if granted.every_type:
         return DeniedTypes()
@@ -159,13 +162,15 @@ def denied_for(grants: AccessGrants, operation: ScopeOperation) -> DeniedTypes:
     return DeniedTypes(ids=grants.restricted.ids - granted.ids)
 
 
-def denied_types_of(grants: AccessGrants, operations: ScopeOperation | Iterable[ScopeOperation]) -> DeniedTypes:
+def denied_types_of(grants: AccessGrants, operations: ScopeOperation | Iterable[ScopeOperation],
+                    reachable: bool = False) -> DeniedTypes:
     """
     The Types the grants deny some of the operations on - every operation must be granted
 
     Args:
         grants (AccessGrants): The user's grants
         operations (ScopeOperation | Iterable[ScopeOperation]): The operation, or every operation that must be held
+        reachable (bool): Whether a conditionally granted Type counts as granted (``denied_for``)
 
     Raises:
         ValueError: When no operation is given
@@ -176,7 +181,7 @@ def denied_types_of(grants: AccessGrants, operations: ScopeOperation | Iterable[
     denied: DeniedTypes = DeniedTypes()
 
     for operation in operation_list(operations):
-        denied = denied.union(denied_for(grants, operation))
+        denied = denied.union(denied_for(grants, operation, reachable))
 
     return denied
 
@@ -242,7 +247,7 @@ def no_object_criteria() -> dict[str, dict[str, list[int]]]:
 
 def operations_allowed(grants: AccessGrants, type_ids: Iterable[int]) -> dict[int, list[ScopeOperation]]:
     """
-    The operations the grants allow on each Type
+    The operations the grants allow on each Type - on at least some of its objects (R23): a conditional grant counts
 
     Args:
         grants (AccessGrants): The user's grants
@@ -252,6 +257,6 @@ def operations_allowed(grants: AccessGrants, type_ids: Iterable[int]) -> dict[in
         dict[int, list[ScopeOperation]]: Per Type, the allowed operations in ScopeOperation order
     """
     return {
-        type_id: [operation for operation in ScopeOperation if grants.allows(operation, type_id)]
+        type_id: [operation for operation in ScopeOperation if grants.may(operation, type_id)]
         for type_id in type_ids
     }
