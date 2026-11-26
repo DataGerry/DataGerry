@@ -26,6 +26,7 @@ from cmdb.manager.generic_manager import GenericManager
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.access_model import (
     ALL_TYPES,
+    ACCESS_RIGHTS_MIGRATION_REPORT_ID,
     MIGRATION_REPORT_COLLECTION,
     TYPE_ACL_MIGRATION_REPORT_ID,
     CmdbScopeRole,
@@ -85,6 +86,20 @@ class ScopeRolesManager(GenericManager):
         except BaseManagerGetError as err:
             LOGGER.error("[%s] Exception: %s. Type: %s", caller, err, type(err))
             raise ScopeRolesManagerGetError(err) from err
+
+
+    def all_roles(self) -> list[dict[str, Any]]:
+        """
+        Reads every stored scope role in one read - the access rules are an administrator's configuration, a handful of
+        documents, not a growing collection
+
+        Raises:
+            ScopeRolesManagerGetError: When the read fails
+
+        Returns:
+            list[dict[str, Any]]: The roles as stored, ascending by public_id
+        """
+        return self._find_roles({}, 'all_roles')
 
 
     def roles_by_ids(self, public_ids: list[int]) -> list[dict[str, Any]]:
@@ -156,26 +171,35 @@ class ScopeRolesManager(GenericManager):
                                 'roles_covering_type')
 
 
-    def type_acl_migration_report(self) -> dict[str, Any] | None:
+    def migration_reports(self) -> dict[str, dict[str, Any]]:
         """
-        Reads the report of the type ACL migration - how the stored type ACLs became these roles and their assignments
+        Reads the access migration reports: the type ACL migration's (how the stored type ACLs became these roles and
+        their assignments) and the access rights migration's (which groups were given which access rule right)
 
         Raises:
-            ScopeRolesManagerGetError: When the read fails
+            ScopeRolesManagerGetError: When a read fails
 
         Returns:
-            dict[str, Any] | None: The report without its ``_id``; None when no type ACL was translated on this database
+            dict[str, dict[str, Any]]: Each stored report without its ``_id``, keyed by it
+                (``TYPE_ACL_MIGRATION_REPORT_ID`` / ``ACCESS_RIGHTS_MIGRATION_REPORT_ID``); a report never written is
+                absent
         """
-        try:
-            found: list[dict[str, Any]] = self.get_many_from_other_collection(
-                MIGRATION_REPORT_COLLECTION, limit=1, projection={MONGO_ID_FIELD: 0},
-                criteria={MONGO_ID_FIELD: TYPE_ACL_MIGRATION_REPORT_ID},
-            )
-        except BaseManagerGetError as err:
-            LOGGER.error("[type_acl_migration_report] Exception: %s. Type: %s", err, type(err))
-            raise ScopeRolesManagerGetError(err) from err
+        reports: dict[str, dict[str, Any]] = {}
 
-        return found[0] if found else None
+        for report_id in (TYPE_ACL_MIGRATION_REPORT_ID, ACCESS_RIGHTS_MIGRATION_REPORT_ID):
+            try:
+                found: list[dict[str, Any]] = self.get_many_from_other_collection(
+                    MIGRATION_REPORT_COLLECTION, limit=1, projection={MONGO_ID_FIELD: 0},
+                    criteria={MONGO_ID_FIELD: report_id},
+                )
+            except BaseManagerGetError as err:
+                LOGGER.error("[migration_reports] Exception: %s. Type: %s", err, type(err))
+                raise ScopeRolesManagerGetError(err) from err
+
+            if found:
+                reports[report_id] = found[0]
+
+        return reports
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 

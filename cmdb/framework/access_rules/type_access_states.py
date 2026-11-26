@@ -132,6 +132,21 @@ def changed_types(before: Mapping[int, TypeAccessState], after: Mapping[int, Typ
     return locked, opened
 
 
+def newly_restricted(before: Mapping[int, TypeAccessState], after: Mapping[int, TypeAccessState]) -> list[int]:
+    """
+    The Types a change restricts that were open - every group without an assignment on them loses them (phase 11)
+
+    Args:
+        before (Mapping[int, TypeAccessState]): The states before the change
+        after (Mapping[int, TypeAccessState]): The states after it, for the same Types
+
+    Returns:
+        list[int]: The Types open before and restricted after, ascending
+    """
+    return sorted(type_id for type_id, state in after.items()
+                  if state is not TypeAccessState.OPEN and before.get(type_id) is TypeAccessState.OPEN)
+
+
 def access_change_problems(locked: list[int], opened: list[int], unrestrict: bool) -> list[str]:
     """
     Refuses a change locking a Type, and one opening a Type unless confirmed

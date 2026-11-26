@@ -387,7 +387,7 @@ def _register_user_management(app: BaseCmdbApp) -> None:
 def _register_access(app: BaseCmdbApp) -> None:
     """
     Mounts the access rules: field classes, scope roles and assignments under ``/access``, the type ACL
-    migration report and the assignments of one Type
+    migration report, the assignments of one Type and the scope builder's catalogue
 
     Not licence-gated - every edition carries them
 
@@ -400,12 +400,14 @@ def _register_access(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.access_routes.assignment_routes import assignments_blueprint
     from cmdb.interface.rest_api.routes.access_routes.migration_report_routes import migration_report_blueprint
     from cmdb.interface.rest_api.routes.access_routes.type_assignment_routes import access_types_blueprint
+    from cmdb.interface.rest_api.routes.access_routes.scope_catalogue_routes import scope_catalogue_blueprint
 
     app.register_blueprint(field_classes_blueprint, url_prefix='/access/field_classes')
     app.register_blueprint(scope_roles_blueprint, url_prefix='/access/scope_roles')
     app.register_blueprint(assignments_blueprint, url_prefix='/access/assignments')
     app.register_blueprint(migration_report_blueprint, url_prefix='/access/migration_report')
     app.register_blueprint(access_types_blueprint, url_prefix='/access/types')
+    app.register_blueprint(scope_catalogue_blueprint, url_prefix='/access/scope_catalogue')
 
 def _register_import_export(app: BaseCmdbApp) -> None:
     """

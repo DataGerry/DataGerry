@@ -14,15 +14,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Constants of the type ACL migration report - the one document recording how the stored type ACLs became scope roles
-and assignments
+Constants of the access migration reports: the type ACL migration's (how the stored type ACLs became scope roles and
+assignments) and the access rights migration's (which user groups were given which access rule right)
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-# The collection holding the report, and the report's ``_id`` - there is one
+# The collection holding the reports, and each report's ``_id`` - one of each at most
 MIGRATION_REPORT_COLLECTION: str = 'access.migrationReport'
 TYPE_ACL_MIGRATION_REPORT_ID: str = 'type_acl_migration'
+ACCESS_RIGHTS_MIGRATION_REPORT_ID: str = 'access_rights_migration'
 
 
 class MigrationReportStatus(BaseStrEnum):
@@ -77,3 +78,18 @@ class MigrationReportTypeKey(BaseStrEnum):
     ROLE_IDS = 'role_ids'
     ASSIGNMENT_IDS = 'assignment_ids'
     DROPPED_GROUP_IDS = 'dropped_group_ids'
+
+
+class RightsMigrationReportKey(BaseStrEnum):
+    """
+    Keys of the access rights migration report (``updater_20261127``), answered under ``rights`` of the migration
+    report route
+
+    Attributes:
+        STARTED_AT: When the first group was recorded (UTC)
+        COMPLETED_AT: When the rights were written (UTC); absent when the run stopped before
+        GROUPS: One entry per user group given rights: ``{group_id, granted}`` - the rights granted
+    """
+    STARTED_AT = 'started_at'
+    COMPLETED_AT = 'completed_at'
+    GROUPS = 'groups'

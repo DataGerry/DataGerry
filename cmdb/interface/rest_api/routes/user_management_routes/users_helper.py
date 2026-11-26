@@ -44,7 +44,7 @@ from cmdb.utils import keep_omitted_keys
 from cmdb.manager import UsersManager
 from cmdb.models.user_model import CmdbUser, canonical_group_ids
 from cmdb.models.user_model.cmdb_user_key_enum import CmdbUserKey
-from cmdb.models.group_model import ADMIN_GROUP_ID
+from cmdb.models.group_model import ADMIN_GROUP_ID, in_administrator_group
 from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
     ADMINISTRATIVE_FIELDS,
     SERVER_OWNED_FIELDS,
@@ -183,7 +183,7 @@ def is_administrator(user: CmdbUser) -> bool:
     Returns:
         bool: True for a member of ``ADMIN_GROUP_ID``
     """
-    return ADMIN_GROUP_ID in user.group_ids
+    return in_administrator_group(user.group_ids)
 
 
 def names_administrator_group(data: dict[str, Any]) -> bool:
@@ -196,7 +196,7 @@ def names_administrator_group(data: dict[str, Any]) -> bool:
     Returns:
         bool: True when ``group_ids`` holds ``ADMIN_GROUP_ID``
     """
-    return ADMIN_GROUP_ID in (data.get(CmdbUserKey.GROUP_IDS.value) or [])
+    return in_administrator_group(data.get(CmdbUserKey.GROUP_IDS.value) or [])
 
 
 def abort_unless_administrator(request_user: CmdbUser, action: str) -> None:

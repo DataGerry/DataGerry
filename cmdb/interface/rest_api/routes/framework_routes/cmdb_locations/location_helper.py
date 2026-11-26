@@ -24,14 +24,16 @@ from flask import abort
 
 from cmdb.manager import ObjectsManager, LocationsManager
 from cmdb.manager.locations_manager import usable_object_ids
+from cmdb.manager.object_scope_blocks import ObjectScopeBlocks
 
-from cmdb.models.object_model import CmdbObject, CmdbObjectFieldKey, CmdbObjectKey
+from cmdb.models.object_model import CmdbObject, CmdbObjectFieldKey, CmdbObjectKey, CmdbObjectScopeKey
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.location_model.location_node import LocationNode
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.write_ledger import WriteLedger
 from cmdb.security.acl.helpers import verify_access
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.object_model.object_constants import ObjectWriteVerb
@@ -593,14 +595,13 @@ def delete_location_with_reparenting(
             write already made undone
         werkzeug.exceptions.InternalServerError: When a failure's undo could not finish - the 500 names the
             writes still in effect
+        BaseManagerGetError | BaseManagerIterationError | BaseManagerUpdateError: If the scope blocks of the objects
+            below the node could not be refreshed - the delete itself stands
 
     Returns:
         bool: True if the location was deleted
     """
     public_id: int = location[LocationKey.PUBLIC_ID.value]
-    # 'parent' is nullable in the schema; a node without one is refused by delete_location below,
-    # unless it has no children at all - in which case there is no object field to re-point either
-    grandparent_id: int | None = location.get(LocationKey.PARENT.value)
 
     # Everything the three writes change, read BEFORE the first of them: the node itself, its direct children
     # (whose parent the promotion rewrites) and the objects owning those children (whose field is re-pointed)
@@ -610,29 +611,74 @@ def delete_location_with_reparenting(
 
     # All-or-nothing by compensation (MongoDB transactions need a replica set): each write is recorded before it
     # runs, so a failure part-way puts the children back under this node, the node back, and the object fields
-    # back at it - and the request fails with the error it hit
-    with undone_on_failure(LOCATION_DELETE_UNDO_INCOMPLETE_MSG) as ledger:
-        for child in children:
-            ledger.updated(locations_manager, child[LocationKey.PUBLIC_ID.value], child)
+    # back at it - and the request fails with the error it hit. The scope blocks below the node follow the tree as it
+    # ends up - removed, or put back by the undo
+    scoped_ids: list[int] = [*usable_object_ids([location]), *child_object_ids]
 
-        if stored_node:
-            ledger.deleted(locations_manager, public_id, stored_node)
+    try:
+        with undone_on_failure(LOCATION_DELETE_UNDO_INCOMPLETE_MSG) as ledger:
+            ack: bool = _delete_and_reparent(ledger, location, stored_node, children, locations_manager,
+                                             objects_manager)
+    except BaseException:
+        # The undo re-points the fields before it restores the node, so the blocks it left were computed against a
+        # half-restored tree: recompute them against the restored one. Best-effort - the request fails with its error
+        ObjectScopeBlocks(objects_manager).try_refresh_naming(scoped_ids, (CmdbObjectScopeKey.LOCATIONS,))
+        raise
 
-        # promotes the child location NODES onto the grandparent, then removes this node
-        ack: bool = locations_manager.delete_location(public_id, stored_node, children)
+    ObjectScopeBlocks(objects_manager).refresh_naming(scoped_ids, (CmdbObjectScopeKey.LOCATIONS,))
 
-        if child_object_ids:
-            # Only the location field is put back - a full-object snapshot would also overwrite any other edit
-            # made to one of these objects in the meantime
-            ledger.compensated(
-                CmdbObject.COLLECTION,
-                f"the location field of CmdbObject(s) {child_object_ids}",
-                undo=lambda: objects_manager.set_location_field_for_objects(child_object_ids, public_id),
-                verify=lambda: location_fields_point_at(objects_manager, child_object_ids, public_id),
-            )
+    return ack
 
-            # keep the mirrored object fields in sync with the re-parented nodes
-            objects_manager.set_location_field_for_objects(child_object_ids, grandparent_id)
+
+def _delete_and_reparent(
+        ledger: WriteLedger,
+        location: dict[str, Any],
+        stored_node: dict[str, Any] | None,
+        children: list[dict[str, Any]],
+        locations_manager: LocationsManager,
+        objects_manager: ObjectsManager) -> bool:
+    """
+    The three ledgered writes of a location delete: the children promoted, the node removed, the object fields
+    re-pointed - each recorded before it runs
+
+    Args:
+        ledger (WriteLedger): Records every write, so a failure part-way is undone
+        location (dict[str, Any]): The CmdbLocation to delete
+        stored_node (dict[str, Any] | None): The node as stored
+        children (list[dict[str, Any]]): Its direct children as stored
+        locations_manager (LocationsManager): db interface for CmdbLocations
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+
+    Returns:
+        bool: True if the location was deleted
+    """
+    public_id: int = location[LocationKey.PUBLIC_ID.value]
+    # 'parent' is nullable in the schema; a node without one is refused by delete_location below,
+    # unless it has no children at all - in which case there is no object field to re-point either
+    grandparent_id: int | None = location.get(LocationKey.PARENT.value)
+    child_object_ids: list[int] = usable_object_ids(children)
+
+    for child in children:
+        ledger.updated(locations_manager, child[LocationKey.PUBLIC_ID.value], child)
+
+    if stored_node:
+        ledger.deleted(locations_manager, public_id, stored_node)
+
+    # promotes the child location NODES onto the grandparent, then removes this node
+    ack: bool = locations_manager.delete_location(public_id, stored_node, children)
+
+    if child_object_ids:
+        # Only the location field is put back - a full-object snapshot would also overwrite any other edit
+        # made to one of these objects in the meantime
+        ledger.compensated(
+            CmdbObject.COLLECTION,
+            f"the location field of CmdbObject(s) {child_object_ids}",
+            undo=lambda: objects_manager.set_location_field_for_objects(child_object_ids, public_id),
+            verify=lambda: location_fields_point_at(objects_manager, child_object_ids, public_id),
+        )
+
+        # keep the mirrored object fields in sync with the re-parented nodes
+        objects_manager.set_location_field_for_objects(child_object_ids, grandparent_id)
 
     return ack
 
@@ -937,6 +983,9 @@ def sync_object_location(
                 'type_selectable': object_type.selectable_as_parent,
                 'name': resolved_name,
             })
+
+        # The object's own chain, and the chain of every object placed below it
+        ObjectScopeBlocks(objects_manager).refresh_naming([object_id], (CmdbObjectScopeKey.LOCATIONS,))
     except Exception as err:
         LOGGER.error("[sync_object_location] Failed to sync Location for Object ID:%s: %s. Type: %s",
                      object_id, err, type(err))

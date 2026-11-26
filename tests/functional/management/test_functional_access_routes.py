@@ -33,13 +33,17 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager import GroupsManager
 from cmdb.framework.access_rules import AccessRuleMessage
 from cmdb.models.access_model import (
+    ACCESS_RIGHTS_MIGRATION_REPORT_ID,
     MIGRATION_REPORT_COLLECTION,
+    SCOPE_SHAPE_MSG,
     TYPE_ACL_MIGRATION_REPORT_ID,
+    UNCONDITIONAL_SCOPE,
     CmdbAccessAssignment,
     CmdbFieldClass,
     CmdbScopeRole,
 )
 from cmdb.models.group_model import CmdbUserGroup
+from cmdb.interface.rest_api.routes.access_routes.access_route_constants import AccessRouteMessage
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -247,14 +251,14 @@ class TestAssignments:
         assert AccessRuleMessage.UNKNOWN_GROUP.value.format(group_id=MISSING_ID) in _message(response)
         assert AccessRuleMessage.UNKNOWN_ROLE.value.format(role_id=MISSING_ID) in _message(response)
 
-    def test_a_scope_condition_is_refused(self, rest_api) -> None:
-        """Only '*' until the scope compiler"""
+    def test_a_scope_neither_every_object_nor_a_list_is_refused(self, rest_api) -> None:
+        """The schema judges the type; the conditions of a list are the write rules' (phase 9, R29)"""
         role_id: int = _created(rest_api, ROLES_URL, ROLE)['public_id']
         response = rest_api.post(ASSIGNMENTS_URL, json={'group_id': NO_RIGHTS_GROUP_ID, 'role_id': role_id,
                                                         'scope': {'location': {'within': 1}}})
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert 'not available yet' in str(response.get_json())
+        assert SCOPE_SHAPE_MSG.format(unconditional=UNCONDITIONAL_SCOPE) in _message(response)
 
 
 class TestRights:
@@ -287,11 +291,11 @@ class TestMigrationReport:
     """GET /access/migration_report"""
 
     def test_no_migration_ran_is_a_404(self, rest_api) -> None:
-        """Nothing was translated here"""
+        """Neither migration wrote a report here"""
         response = rest_api.get(MIGRATION_REPORT_URL)
 
         assert response.status_code == HTTPStatus.NOT_FOUND
-        assert 'No type ACL was translated' in _message(response)
+        assert _message(response) == AccessRouteMessage.NO_MIGRATION_REPORT.value
 
     def test_the_stored_report_without_its_id(self, rest_api, db: Any) -> None:
         """As stored - the viewer reads it"""
@@ -305,9 +309,32 @@ class TestMigrationReport:
         result: dict[str, Any] = response.get_json()['result']
 
         assert response.status_code == HTTPStatus.OK
-        assert {key: value for key, value in result.items() if key != 'started_at'} == report
+        assert {key: value for key, value in result.items() if key not in ('started_at', 'rights')} == report
+        assert result['rights'] is None
         assert '_id' not in result
         assert result['started_at']
+
+    def test_the_rights_report_alone_is_answered_under_rights(self, rest_api, db: Any) -> None:
+        """No type ACL translated, groups given rights: no 404, only the rights key"""
+        rights: dict[str, Any] = {'groups': [{'group_id': VIEW_GROUP_ID, 'granted': ['base.access.view']}]}
+        db[MIGRATION_REPORT_COLLECTION].insert_one({'_id': ACCESS_RIGHTS_MIGRATION_REPORT_ID, **rights})
+
+        response = rest_api.get(MIGRATION_REPORT_URL)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['result'] == {'rights': rights}
+
+    def test_both_reports_in_one_answer(self, rest_api, db: Any) -> None:
+        """The type ACL report's keys beside rights"""
+        rights: dict[str, Any] = {'groups': [{'group_id': VIEW_GROUP_ID, 'granted': ['base.access.view']}]}
+        db[MIGRATION_REPORT_COLLECTION].insert_many([
+            {'_id': TYPE_ACL_MIGRATION_REPORT_ID, 'status': 'complete', 'types': []},
+            {'_id': ACCESS_RIGHTS_MIGRATION_REPORT_ID, **rights},
+        ])
+
+        response = rest_api.get(MIGRATION_REPORT_URL)
+
+        assert response.get_json()['result'] == {'status': 'complete', 'types': [], 'rights': rights}
 
 
 class TestReferenceRules:

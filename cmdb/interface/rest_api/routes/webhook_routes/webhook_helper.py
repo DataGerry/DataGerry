@@ -526,6 +526,7 @@ def send_webhook_event(
                 webhooks,
                 read_event_type_document(request_user, event_type_id(object_before, object_after)),
                 read_webhook_owners(request_user, webhooks),
+                tuple(state for state in (object_before, object_after) if state),
             )
 
         if not webhooks:

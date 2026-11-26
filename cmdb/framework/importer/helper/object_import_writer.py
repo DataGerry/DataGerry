@@ -31,11 +31,12 @@ from pymongo.results import UpdateResult
 
 from cmdb.manager import ObjectsManager
 from cmdb.manager.objects_manager import OBJECT_DOCUMENT_ERRORS
+from cmdb.manager.object_scope_blocks import ObjectScopeBlocks
 from cmdb.models.object_model import CmdbObject, CmdbObjectKey, OBJECT_SYNC_KEYS
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.object_edit import PlannedEdit, build_edit_stamp, plan_object_edit
 
-from cmdb.errors.manager import BaseManagerUpdateError
+from cmdb.errors.manager import BaseManagerIterationError, BaseManagerUpdateError
 from cmdb.errors.manager.objects_manager import ObjectsManagerInsertError, ObjectsManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -79,6 +80,7 @@ def insert_new_objects(objects_manager: ObjectsManager, documents: list[dict[str
 
     Raises:
         BaseManagerGetError: If the ids could not be reserved - nothing was written
+        BaseManagerIterationError: If the objects' scope blocks could not be computed - nothing was written
         BaseManagerInsertError: If the insert failed as a whole - which objects were written is not known
         DocumentLockTimeoutError / DocumentNetworkError: A transient failure of the insert, as above
 
@@ -91,6 +93,7 @@ def insert_new_objects(objects_manager: ObjectsManager, documents: list[dict[str
         document[CmdbObjectKey.PUBLIC_ID.value] = public_id
 
     serialised, positions, failures = serialise_new_objects(documents)
+    ObjectScopeBlocks(objects_manager).stamp(serialised)
 
     for index, error in objects_manager.insert_many_reporting(serialised).items():
         failures[positions[index]] = error
@@ -169,8 +172,9 @@ def replace_stored_object(objects_manager: ObjectsManager, document: dict[str, A
     try:
         stored_form: dict[str, Any] = CmdbObject.to_json(CmdbObject.from_data(document))
         stored_form.update({key: document[key] for key in OBJECT_SYNC_KEYS if key in document})
+        ObjectScopeBlocks(objects_manager).stamp([stored_form])
         result: UpdateResult = objects_manager.replace(document[CmdbObjectKey.PUBLIC_ID.value], stored_form)
-    except (BaseManagerUpdateError, *OBJECT_DOCUMENT_ERRORS) as err:
+    except (BaseManagerIterationError, BaseManagerUpdateError, *OBJECT_DOCUMENT_ERRORS) as err:
         raise ObjectsManagerUpdateError(err) from err
 
     return result.matched_count > 0

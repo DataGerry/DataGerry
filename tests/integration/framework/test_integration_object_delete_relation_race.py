@@ -28,7 +28,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager import ObjectRelationLogsManager, ObjectRelationsManager
+from cmdb.manager import ObjectRelationLogsManager, ObjectRelationsManager, ObjectsManager
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.models.log_model import CmdbObjectRelationLog
 from cmdb.models.log_model.object_relation_log_constants import ObjectRelationLogKey
@@ -77,6 +77,7 @@ def _run_with_a_late_relation(database_manager: MongoDatabaseManager, relations:
     managers = {
         ManagerType.OBJECT_RELATIONS: ObjectRelationsManager(database_manager),
         ManagerType.OBJECT_RELATION_LOGS: ObjectRelationLogsManager(database_manager),
+        ManagerType.OBJECTS: ObjectsManager(database_manager),
     }
     prepare = cascade.prepare_relation_delete_logs
     rounds: list[int] = []

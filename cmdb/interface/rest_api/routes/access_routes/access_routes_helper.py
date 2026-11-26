@@ -85,7 +85,7 @@ def load_or_404(manager: GenericManager, public_id: int, label: str) -> dict[str
 
 
 def list_response(manager: GenericManager, model: type[CmdbDAO], params: CollectionParameters,
-                  searchable: tuple[str, ...]) -> Response:
+                  searchable: tuple[str, ...], condition: dict[str, Any] | None = None) -> Response:
     """
     Answers one page of a collection, through the client's filter, search, sort and paging
 
@@ -94,6 +94,7 @@ def list_response(manager: GenericManager, model: type[CmdbDAO], params: Collect
         model (type[CmdbDAO]): Its model
         params (CollectionParameters): The request's collection parameters
         searchable (tuple[str, ...]): The columns ``?search=`` looks in
+        condition (dict[str, Any] | None): A server-side condition put ahead of the client's filter, or None
 
     Raises:
         Exception: The manager's 'iterate' error when the read fails
@@ -102,6 +103,10 @@ def list_response(manager: GenericManager, model: type[CmdbDAO], params: Collect
         Response: The page, its total and the paging links
     """
     builder_params: BuilderParameters = build_searchable_builder_params(params, searchable)
+
+    if condition is not None:
+        builder_params.add_criteria(condition)
+
     result: IterationResult[CmdbDAO] = manager.iterate_items(builder_params)
 
     return GetMultiResponse([model.to_json(item) for item in result.results], result.total, params, request.url,

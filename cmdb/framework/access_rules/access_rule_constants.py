@@ -48,6 +48,9 @@ class AccessRuleMessage(BaseStrEnum):
     BEYOND_OWN_REACH = (
         "Scope role {role_id} would give a user group you are in more than you hold yourself: {beyond}"
     )
+    BEYOND_DELEGATION = (
+        "Scope role {role_id} grants more than your own access - you may delegate assignments only within it: {beyond}"
+    )
 
 
 class ReachPart(BaseStrEnum):

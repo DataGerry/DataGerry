@@ -763,8 +763,8 @@ ACCESS_RIGHTS = (
         AccessRight(
             'view',
             description=(
-                'View the access rules - field classes, scope roles and assignments - and where they are used. The '
-                'rules do not decide access yet: the type ACL still does'
+                'View the access rules - field classes, scope roles and assignments - which decide who may view, '
+                'create, edit and delete the objects of each type, and where they are used'
             ),
         ),
         FieldClassRight(GLOBAL_RIGHT_IDENTIFIER, description='All field class rights: create, change and delete them'),
@@ -794,6 +794,14 @@ ACCESS_RIGHTS = (
                 description=(
                     'Create, change and delete assignments - which user group holds which scope role, and where. '
                     'Whoever edits them will control what every group may reach'
+                ),
+            ),
+            AssignmentRight(
+                'delegate',
+                description=(
+                    'Create, change and delete assignments only within one\'s own access: the scope role must grant no '
+                    'type, operation or field writing beyond what one\'s own assignments grant, before and after the '
+                    'change. Viewing the roles needs the access rules view right too'
                 ),
             ),
         ),

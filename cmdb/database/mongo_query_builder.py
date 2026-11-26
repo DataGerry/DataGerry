@@ -50,7 +50,6 @@ of this module. Note that this builder emits query OPERATORS nested inside ``$el
 pipeline stages, which is why it does not go through ``Builder``: that class supplies stage
 constructors, not the operator vocabulary needed here.
 """
-import re
 from logging import Logger, getLogger
 from typing import Any, Callable
 from datetime import datetime
@@ -58,9 +57,16 @@ from datetime import datetime
 from cmdb.models.type_model import CmdbType, FieldType
 from cmdb.models.object_model import (
     CmdbObjectKey,
-    CmdbObjectFieldKey,
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
+)
+from cmdb.database.field_query_fragments import (
+    FIELDS_PATH,
+    contains_fragment,
+    day_granular_fragment,
+    elem_match,
+    end_of_day,
+    no_entry,
 )
 from cmdb.models.reports_model.report_constants import (
     ReportConditionKey,
@@ -92,16 +98,14 @@ RULE_VALUE_EXPECTS_WHOLE_NUMBER: str = 'a whole number'
 # The values a field entry may hold and still count as "empty" for the null operators
 EMPTY_VALUES: tuple[Any, ...] = (None, "")
 
-# Document paths a leaf rule may target (plain strings, so the query survives the repr round-trip)
-FIELDS_PATH: str = CmdbObjectKey.FIELDS.value
+# Document paths a leaf rule may target (plain strings, so the query survives the repr round-trip); FIELDS_PATH and
+# the entry keys come from the shared field query fragments
 MDS_VALUES_PATH: str = (
     f"{CmdbObjectKey.MULTI_DATA_SECTIONS.value}"
     f".{CmdbObjectMdsKey.VALUES.value}"
     f".{CmdbObjectMdsRowKey.DATA.value}"
 )
 TYPE_ID_KEY: str = CmdbObjectKey.TYPE_ID.value
-FIELD_NAME_KEY: str = CmdbObjectFieldKey.NAME.value
-FIELD_VALUE_KEY: str = CmdbObjectFieldKey.VALUE.value
 
 
 def build_contains_fragment(value: Any) -> dict[str, Any]:
@@ -117,7 +121,7 @@ def build_contains_fragment(value: Any) -> dict[str, Any]:
     Returns:
         dict[str, Any]: A `$regex` fragment
     """
-    return {'$regex': re.escape(str(value))}
+    return contains_fragment(value)
 
 
 def build_like_fragment(value: Any) -> dict[str, Any]:
@@ -130,7 +134,7 @@ def build_like_fragment(value: Any) -> dict[str, Any]:
     Returns:
         dict[str, Any]: A case-insensitive `$regex` fragment
     """
-    return {'$regex': re.escape(str(value)), '$options': 'i'}
+    return contains_fragment(value, case_insensitive=True)
 
 
 def build_is_null_fragment(_value: Any = None) -> dict[str, Any]:
@@ -522,7 +526,7 @@ class MongoDBQueryBuilder:
         }
 
         if operator == ReportQueryOperator.IS_NULL:
-            return {'$or': [entry_match, {target_field: {'$not': {'$elemMatch': {FIELD_NAME_KEY: field_name}}}}]}
+            return {'$or': [entry_match, no_entry(field_name, target_field)]}
 
         return entry_match
 
@@ -539,7 +543,7 @@ class MongoDBQueryBuilder:
         Returns:
             dict[str, Any]: The `$elemMatch` fragment
         """
-        return {'$elemMatch': {FIELD_NAME_KEY: field_name, FIELD_VALUE_KEY: value_fragment}}
+        return elem_match(field_name, value_fragment)
 
 
     @staticmethod
@@ -553,7 +557,7 @@ class MongoDBQueryBuilder:
         Returns:
             datetime: The same day at 23:59:59.999999
         """
-        return moment.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return end_of_day(moment)
 
 
     def _build_date_value_fragment(self, operator: str, value: datetime) -> dict[str, Any] | None:
@@ -574,22 +578,9 @@ class MongoDBQueryBuilder:
             dict[str, Any] | None: The fragment, or None when the operator needs no widening and the
                 caller should fall back to the direct mapping
         """
-        day_start: datetime = value
-        day_end: datetime = self._end_of_day(value)
+        mongo_operator: str | None = self.__DIRECT_OPERATORS.get(operator)
 
-        if operator == ReportQueryOperator.EQ:
-            return {'$gte': day_start, '$lte': day_end}
-
-        if operator == ReportQueryOperator.NE:
-            return {'$not': {'$gte': day_start, '$lte': day_end}}
-
-        if operator == ReportQueryOperator.LTE:
-            return {'$lte': day_end}
-
-        if operator == ReportQueryOperator.GT:
-            return {'$gt': day_end}
-
-        return None
+        return day_granular_fragment(mongo_operator, value) if mongo_operator else None
 
 
     def _get_value_fragment(

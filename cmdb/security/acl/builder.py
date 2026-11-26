@@ -254,7 +254,9 @@ def build_scope_criteria(user: 'CmdbUser', permission: AccessControlPermission) 
     Builds the CmdbObject filter for the objects the user may access - to merge into a query's own criteria
 
     Unlike an exclusion by ``resolve_denied_type_ids``, it keeps an object of a gone Type out when every Type is
-    restricted (it then admits the granted Types instead of excluding the denied ones)
+    restricted (it then admits the granted Types instead of excluding the denied ones), and it lets in the objects a
+    conditional assignment's condition matches (phase 9) - for CmdbObject queries only; a record's query takes
+    ``build_record_scope_criteria``
 
     Args:
         user (CmdbUser): The CmdbUser the request is made for
@@ -270,6 +272,29 @@ def build_scope_criteria(user: 'CmdbUser', permission: AccessControlPermission) 
     from cmdb.framework.access_engine import permission_operations, scope_filter
 
     return scope_filter(user, permission_operations(permission))
+
+
+@as_manager_read_error
+def build_record_scope_criteria(user: 'CmdbUser', permission: AccessControlPermission) -> dict[str, Any]:
+    """
+    Builds the Type-only filter on a record's ``type_id`` - for what is no CmdbObject (history, other collections): a
+    Type the user holds only through conditional assignments is denied, since a record carries no object state to
+    judge a condition on (phase 9, R26)
+
+    Args:
+        user (CmdbUser): The CmdbUser the request is made for
+        permission (AccessControlPermission): The permission the user must hold
+
+    Raises:
+        BaseManagerGetError: When the user's grants could not be read
+
+    Returns:
+        dict[str, Any]: The filter; empty when the user may access every type
+    """
+    # pylint: disable=import-outside-toplevel
+    from cmdb.framework.access_engine import permission_operations, record_scope_filter
+
+    return record_scope_filter(user, permission_operations(permission))
 
 
 @as_manager_read_error

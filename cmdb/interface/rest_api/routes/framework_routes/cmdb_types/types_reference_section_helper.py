@@ -44,7 +44,7 @@ from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKe
 from cmdb.models.type_model.type_reference_section import TypeReferenceSection
 from cmdb.models.type_model.type_reference_section_entry import resolve_pulled_field_names
 from cmdb.models.user_model.cmdb_user import CmdbUser
-from cmdb.security.acl.helpers import has_type_document_access
+from cmdb.security.acl.helpers import has_type_document_reach
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     REFERENCED_SECTION_REMOVAL_MESSAGE,
@@ -614,7 +614,7 @@ def build_referenced_section_usage_payload(request_user: CmdbUser, target_type: 
     )
     readable_ids: set[int] = {
         dependent[TypeSchemaKey.PUBLIC_ID.value] for dependent in dependents
-        if has_type_document_access(dependent, request_user, AccessControlPermission.READ)
+        if has_type_document_reach(dependent, request_user, AccessControlPermission.READ)
     }
     referencing_type_ids: list[int] = sorted(readable_ids)
     sections: dict[str, list[dict[str, Any]]] = {

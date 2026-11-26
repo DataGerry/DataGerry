@@ -43,6 +43,7 @@ from cmdb.manager import (
     ObjectRelationsManager,
     RelationsManager,
 )
+from cmdb.manager.object_scope_blocks import ObjectScopeBlocks
 from cmdb.models.location_model.location_constants import LocationKey
 from cmdb.models.log_model.object_log_constants import OBJECT_LOG_TYPE, ObjectLogKey
 from cmdb.models.log_model.object_relation_log_constants import ObjectRelationLogKey
@@ -306,6 +307,8 @@ def _move(context: SyncContext, stores: RelocationStores, ledger: WriteLedger, s
 
     ledger.updated(context.objects_manager, person_id, stored)
     context.objects_manager.update({CmdbObjectKey.PUBLIC_ID.value: person_id}, operations)
+    # The new Type may not declare the interface rows the person had - the ledger's undo restores the stored block
+    ObjectScopeBlocks(context.objects_manager).refresh([person_id])
     result.edits[person_id] = plan
 
     _restamp(stores.logs_manager, ledger, OBJECT_LOGS_LABEL,

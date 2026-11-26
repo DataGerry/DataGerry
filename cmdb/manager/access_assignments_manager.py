@@ -115,6 +115,20 @@ class AccessAssignmentsManager(GenericManager):
         return self._find_assignments({AccessAssignmentKey.ROLE_ID.value: role_id}, 'assignments_of_role')
 
 
+    def conditional_assignments(self) -> list[dict[str, Any]]:
+        """
+        Reads the assignments whose scope is a condition list rather than ``"*"``, in one read - the stale-scope guards
+        of the Type, template and role updates read nothing more while there is none
+
+        Raises:
+            AccessAssignmentsManagerGetError: When the read fails
+
+        Returns:
+            list[dict[str, Any]]: The assignments as stored, ascending by public_id
+        """
+        return self._find_assignments({AccessAssignmentKey.SCOPE.value: {'$type': 'array'}}, 'conditional_assignments')
+
+
     def assignments_of_roles(self, role_ids: list[int]) -> list[dict[str, Any]]:
         """
         Reads the assignments granting any of the given scope roles, in one read

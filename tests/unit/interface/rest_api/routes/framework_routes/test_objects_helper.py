@@ -961,7 +961,7 @@ class TestApplyObjectUpdate:
             _make_object([{'name': 'a', 'value': 1}], special_type='SUBNET'),
         )
 
-        with patch(f'{READ_PATH}.verify_access'), pytest.raises(HTTPException) as exc_info:
+        with patch(f'{READ_PATH}.verify_object_access'), pytest.raises(HTTPException) as exc_info:
             apply_object_update(5, {'fields': [], 'special_type': 'VLAN'}, None, _context(objects_manager))
 
         assert exc_info.value.code == 400

@@ -50,6 +50,10 @@ from cmdb.interface.route_utils import (
     user_has_right,
     verify_api_access,
 )
+from cmdb.interface.rest_api.routes.user_management_routes.group_membership_guard import (
+    abort_if_adding_groups_beyond,
+    added_group_ids,
+)
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     abort_unless_administrator,
     complete_user_update,
@@ -164,6 +168,8 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
         # Only an administrator creates an administrator
         guard_administrator_create(request_user, data)
+        # Nor puts a user into a group holding more than the caller - a new account is no way around it
+        abort_if_adding_groups_beyond(request_user, data[CmdbUserKey.GROUP_IDS.value])
 
         user_password = data['password']
         data['password'] = security_manager.generate_hmac(data['password'])
@@ -405,6 +411,9 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
     # Every group the user is written into must exist - a self-edit keeps the stored ones, which are checked too
     abort_on_unknown_references(groups_manager, data[CmdbUserKey.GROUP_IDS.value], USER_GROUP_LABEL)
+    # No group added beyond the caller - the groups the user keeps are not judged
+    abort_if_adding_groups_beyond(request_user,
+                                  added_group_ids(to_update_user.group_ids, data[CmdbUserKey.GROUP_IDS.value]))
 
     # After the guard: a self-edit has had its user_name pinned to the stored one, which excludes itself
     user_name: str = data[CmdbUserKey.USER_NAME.value]

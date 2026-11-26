@@ -67,6 +67,8 @@ from cmdb.models.object_model.cmdb_object_key_enum import (
     CmdbObjectKey,
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
+    CmdbObjectScopeKey,
+    CmdbObjectScopeRelatedKey,
     CmdbObjectSystemRefKey,
     OBJECT_DATE_KEYS,
 )
@@ -160,6 +162,18 @@ class CmdbObject(CmdbDAO):
                 ),
             ],
             'name': 'multi_data_sections_values_data_name_value',
+            'unique': False,
+        },
+        # The materialised scope block: a scope's location, network and address conditions read these
+        *({
+            'keys': [(f'{CmdbObjectScopeKey.BLOCK.value}.{scope_key.value}', CmdbDAO.DAO_ASCENDING)],
+            'name': f'scope_{scope_key.value}',
+            'unique': False,
+        } for scope_key in (CmdbObjectScopeKey.LOCATIONS, CmdbObjectScopeKey.NETWORKS, CmdbObjectScopeKey.IPS)),
+        {
+            'keys': [(f'{CmdbObjectScopeKey.BLOCK.value}.{CmdbObjectScopeKey.RELATED.value}.{related_key.value}',
+                      CmdbDAO.DAO_ASCENDING) for related_key in CmdbObjectScopeRelatedKey],
+            'name': f'scope_{CmdbObjectScopeKey.RELATED.value}',
             'unique': False,
         },
         # One synced object per user and per user group, and one user group per person group: the sync's link is

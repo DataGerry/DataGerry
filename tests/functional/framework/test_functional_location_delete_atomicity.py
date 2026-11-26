@@ -54,6 +54,10 @@ ALL_NODE_IDS: list[int] = [TOP_NODE_ID, DOOMED_NODE_ID, CHILD_NODE_ID]
 ALL_OBJECT_IDS: list[int] = [DOOMED_OBJECT_ID, CHILD_OBJECT_ID]
 TYPE_ID: int = 9960
 LOCATION_FIELD: str = 'dg_location'
+SCOPE_BLOCK_KEY: str = '_scope'
+# The chains of the restored tree: the doomed object under the top node, the child under the doomed node
+RESTORED_CHAINS: dict[int, list[int]] = {DOOMED_OBJECT_ID: [TOP_OBJECT_ID],
+                                         CHILD_OBJECT_ID: [TOP_OBJECT_ID, DOOMED_OBJECT_ID]}
 
 
 def _node(public_id: int, object_id: int, parent: int) -> dict[str, Any]:
@@ -105,14 +109,23 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
 
 
 def _snapshot(collections) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Every test node and object as stored, without Mongo's _id."""
+    """Every test node and object as stored, without Mongo's _id and the derived scope block (``_blocks``)."""
     nodes, objects = collections
 
     def _clean(collection, ids: list[int]) -> list[dict[str, Any]]:
-        return sorted(({k: v for k, v in doc.items() if k != '_id'} for doc in collection.find({'public_id': {
+        return sorted(({k: v for k, v in doc.items() if k not in ('_id', SCOPE_BLOCK_KEY)}
+                       for doc in collection.find({'public_id': {
             '$in': ids}})), key=lambda doc: doc['public_id'])
 
     return _clean(nodes, ALL_NODE_IDS), _clean(objects, ALL_OBJECT_IDS)
+
+
+def _blocks(collections) -> dict[int, Any]:
+    """The location chain each test object's scope block holds"""
+    _nodes, objects = collections
+
+    return {doc['public_id']: doc.get(SCOPE_BLOCK_KEY, {}).get('locations')
+            for doc in objects.find({'public_id': {'$in': ALL_OBJECT_IDS}})}
 
 
 def _raiser(error: Exception):
@@ -175,6 +188,8 @@ class TestTheDeleteIsAllOrNothing:
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
         assert _snapshot(collections) == before
+        # The undo re-pointed the fields before the node was back - the blocks follow the restored tree all the same
+        assert _blocks(collections) == RESTORED_CHAINS
 
     def test_a_field_write_that_applied_but_reported_failure_is_undone(
             self, rest_api, monkeypatch, collections) -> None:
@@ -198,6 +213,7 @@ class TestTheDeleteIsAllOrNothing:
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
         assert _snapshot(collections) == before
+        assert _blocks(collections) == RESTORED_CHAINS
 
     def test_a_failed_field_write_whose_inverse_also_fails_is_still_clean(
             self, rest_api, monkeypatch, collections) -> None:

@@ -36,6 +36,7 @@ from cmdb.manager import TypesManager
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
 
+from cmdb.interface.rest_api.routes.access_routes.access_scope_guard import guard_scope_field_change
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import guard_updated_acl
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_guard_helper import (
     guard_field_identifier_change,
@@ -173,6 +174,7 @@ def guard_type_update_changes(
       Ports of its Objects exist
     * a person selector is not narrowed - to one object, or by a kind - while Objects hold what it would not allow
     * a target Type of the user sync stays one the sync can write into: active, no required field it cannot fill
+    * a field a stored scope condition compares is neither removed nor retyped (``access_scope_guard``)
 
     Args:
         request_user (CmdbUser): CmdbUser requesting the update
@@ -195,6 +197,7 @@ def guard_type_update_changes(
     guard_uses_ports_change(request_user, old_type, new_type)
     guard_person_selector_narrowing(request_user, old_type, new_type)
     guard_sync_target_change(request_user, new_type)
+    guard_scope_field_change(request_user, old_type, new_type)
 
 
 def write_type_update(

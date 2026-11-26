@@ -18,7 +18,7 @@ Unit tests for the CmdbObject index declarations
 
 Pins the compound (name, value) multikey indexes added for the $elemMatch{name, value}
 query shape (IPAM reference lookups and field-value queries) alongside the pre-existing
-value-only indexes, and confirms get_index_keys still materialises every declaration
+value-only indexes, the three scope block indexes, and confirms get_index_keys still materialises every declaration
 """
 from cmdb.models.object_model.cmdb_object import CmdbObject
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -69,3 +69,12 @@ def test_get_index_keys_materialises_every_declaration() -> None:
     models = CmdbObject.get_index_keys()
 
     assert len(models) == len(CmdbObject.INDEX_KEYS) + len(CmdbObject.SUPER_INDEX_KEYS)
+
+
+def test_each_scope_block_list_has_its_own_index() -> None:
+    """The scope conditions read _scope.locations / networks / ips - one single-key index each"""
+    for name in ('locations', 'networks', 'ips'):
+        declaration = _index_by_name(f'scope_{name}')
+
+        assert declaration['keys'] == [(f'_scope.{name}', 1)]
+        assert declaration['unique'] is False

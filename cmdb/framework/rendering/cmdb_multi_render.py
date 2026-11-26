@@ -101,7 +101,7 @@ from cmdb.models.type_model.type_reference_key_enum import TypeReferenceKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.utils import coerce_mongo_datetime
-from cmdb.framework.access_engine import allowed_operation_values, synthesised_acl_values
+from cmdb.framework.access_engine import allowed_operation_values, object_operation_values, synthesised_acl_values
 from cmdb.framework.rendering.render_constants import (
     ANONYMOUS_NAME,
     DEFAULT_RENDER_LEVEL,
@@ -235,6 +235,9 @@ class CmdbMultiRender:
                 # during merge (copy-on-write off the cache), so none of these need an extra deep copy
                 result.object_information = self._generate_object_information(obj)
                 result.type_information = self._generate_type_information(obj_type)
+                # For the object itself: its scope conditions decide view / edit / delete (phase 9, R23)
+                result.type_information[RenderTypeInfoKey.ALLOWED_OPERATIONS.value] = object_operation_values(
+                    self.render_user, CmdbObject.to_json(obj))
                 result.fields = self._set_fields(obj, obj_type, level)
                 # sections/externals/mds still serialise structures that share lists with the cache/object
                 result.sections = deepcopy(self._get_type_sections(obj_type))

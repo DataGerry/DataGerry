@@ -29,12 +29,15 @@ from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.access_assignments_manager import AccessAssignmentsManagerGetError
 from cmdb.errors.manager.scope_roles_manager import ScopeRolesManagerGetError
 from cmdb.errors.manager.types_manager import TypesManagerGetError
+from cmdb.errors.scope_compiler import ScopeResolutionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ENGINE_READ_ERRORS: tuple[type[Exception], ...] = (
     AccessAssignmentsManagerGetError,
     ScopeRolesManagerGetError,
     TypesManagerGetError,
+    # A conditional assignment's Types or references could not be read (phase 9) - a failed read like the grants'
+    ScopeResolutionError,
 )
 
 Result = TypeVar('Result')

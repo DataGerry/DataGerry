@@ -39,14 +39,16 @@ from .access_constants import (
     VALUES_NOT_UNIQUE_MSG,
     ROLE_TYPES_SHAPE_MSG,
     ROLE_TYPES_TOO_MANY_MSG,
-    SCOPE_CONDITIONS_UNAVAILABLE_MSG,
+    SCOPE_SHAPE_MSG,
 )
 from .migration_report_constants import (
     MIGRATION_REPORT_COLLECTION,
     TYPE_ACL_MIGRATION_REPORT_ID,
+    ACCESS_RIGHTS_MIGRATION_REPORT_ID,
     MigrationReportStatus,
     MigrationReportKey,
     MigrationReportTypeKey,
+    RightsMigrationReportKey,
 )
 from .cmdb_field_class import CmdbFieldClass
 from .cmdb_scope_role import CmdbScopeRole
@@ -78,10 +80,12 @@ __all__: list[str] = [
     'VALUES_NOT_UNIQUE_MSG',
     'ROLE_TYPES_SHAPE_MSG',
     'ROLE_TYPES_TOO_MANY_MSG',
-    'SCOPE_CONDITIONS_UNAVAILABLE_MSG',
+    'SCOPE_SHAPE_MSG',
     'MIGRATION_REPORT_COLLECTION',
     'TYPE_ACL_MIGRATION_REPORT_ID',
     'MigrationReportStatus',
     'MigrationReportKey',
     'MigrationReportTypeKey',
+    'ACCESS_RIGHTS_MIGRATION_REPORT_ID',
+    'RightsMigrationReportKey',
 ]

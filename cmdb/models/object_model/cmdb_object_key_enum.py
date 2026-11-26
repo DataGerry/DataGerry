@@ -74,6 +74,31 @@ class CmdbObjectSyncKey(BaseStrEnum):
     SYNC_HASH = 'sync_hash'
 
 
+class CmdbObjectScopeKey(BaseStrEnum):
+    """
+    The materialised scope block an object stores outside the model, and its keys
+
+    BLOCK is the top-level key. LOCATIONS holds the object ids of the location the object is placed in and of every
+    location above it, NETWORKS the subnets its interface rows name and their supernets, IPS its interface addresses
+    encoded so text order is numeric order, RELATED the objects its object relations link it to. The block is derived
+    and server-owned: the object writes compute it, no client sets it and no answer carries it
+    """
+    BLOCK = '_scope'
+    LOCATIONS = 'locations'
+    NETWORKS = 'networks'
+    IPS = 'ips'
+    RELATED = 'related'
+
+
+class CmdbObjectScopeRelatedKey(BaseStrEnum):
+    """
+    The keys of one entry of the scope block's ``related`` list: an object an object relation links this one to (either
+    direction), and that relation's definition
+    """
+    OBJECT = 'object'
+    RELATION = 'relation'
+
+
 class CmdbObjectFieldKey(BaseStrEnum):
     """
     Dict keys of one entry inside a CmdbObject 'fields' list, or inside an MDS row's 'data' list

@@ -210,11 +210,18 @@ class TestTheDelegateStillManagesOrdinaryUsers:
     """The rule takes nothing from the user rights below the administrator group."""
 
     def test_creates_an_ordinary_user(self, rest_api, users, delegate: CmdbUser) -> None:
-        """Into any group but the administrators'"""
-        response = rest_api.post(f'{USERS_URL}/', json=_new_user(USER_GROUP_ID, 'ordinary'), user=delegate)
+        """Into a group holding no more than the delegate - its own"""
+        response = rest_api.post(f'{USERS_URL}/', json=_new_user(DELEGATE_GROUP_ID, 'ordinary'), user=delegate)
 
         assert response.status_code == HTTPStatus.CREATED
         assert users.count_documents({'user_name': f'{CREATED_NAME_PREFIX}ordinary'}) == 1
+
+    def test_not_into_a_group_holding_more(self, rest_api, users, delegate: CmdbUser) -> None:
+        """The default user group holds object rights the delegate lacks (T579) - refused, nothing stored"""
+        response = rest_api.post(f'{USERS_URL}/', json=_new_user(USER_GROUP_ID, 'stronger'), user=delegate)
+
+        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert users.count_documents({'user_name': f'{CREATED_NAME_PREFIX}stronger'}) == 0
 
     def test_deactivates_and_regroups_an_ordinary_user(self, rest_api, users, delegate: CmdbUser) -> None:
         """Administrative fields of a non-administrator stay the right's business"""

@@ -119,6 +119,28 @@ def own_reach_problem(grants: AccessGrants, role_id: int, role: Mapping[str, Any
     return AccessRuleMessage.BEYOND_OWN_REACH.value.format(role_id=role_id, beyond=beyond_text)
 
 
+def delegation_problem(grants: AccessGrants, role_id: int, role: Mapping[str, Any]) -> str | None:
+    """
+    Refuses a scope role a delegate may not hand out: it grants beyond the delegate's own access - measured against
+    everything the delegate's assignments grant together, for any user group
+
+    Args:
+        grants (AccessGrants): The delegate's grants
+        role_id (int): The role's public_id
+        role (Mapping[str, Any]): The role as stored
+
+    Returns:
+        str | None: The problem, or None when the role stays within the delegate's access
+    """
+    beyond: list[str] = beyond_reach(grants, role)
+
+    if not beyond:
+        return None
+
+    return AccessRuleMessage.BEYOND_DELEGATION.value.format(role_id=role_id,
+                                                            beyond=ReachPart.SEPARATOR.value.join(beyond))
+
+
 def _types_text(type_set: TypeSet) -> str:
     """
     A Type set as a refusal names it

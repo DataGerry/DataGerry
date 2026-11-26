@@ -45,6 +45,7 @@ from tests.utils.cmdb_app_stub import stub_cmdb_app
 MODULE_PATH: str = 'cmdb.interface.blueprints.api_blueprint'
 
 RIGHT: str = 'base.framework.object.view'
+OTHER_RIGHT: str = 'base.framework.object.edit'
 ROUTE_RESULT: str = 'ROUTE_CALLED'
 # The request user a route was called with - the scoping receives it unchanged
 REQUEST_USER_SENTINEL: object = object()
@@ -111,6 +112,24 @@ class TestProtectRightCheck:
                 with pytest.raises(HTTPException) as exc_info:
                     wrapped(request_user=MagicMock())
         assert exc_info.value.code == HTTPStatus.FORBIDDEN
+
+    @pytest.mark.parametrize('held', [RIGHT, OTHER_RIGHT], ids=['first', 'second'])
+    def test_any_of_several_rights_runs_the_route(self, held: str) -> None:
+        """A route open to two rights: holding either one suffices"""
+        wrapped = APIBlueprint.protect(auth=True, right=(RIGHT, OTHER_RIGHT))(_route)
+        with patch(f'{MODULE_PATH}.user_has_right', side_effect=lambda name, _user: name == held):
+            with stub_cmdb_app().test_request_context():
+                assert wrapped(request_user=MagicMock()) == ROUTE_RESULT
+
+    def test_none_of_several_rights_is_a_403_naming_both(self) -> None:
+        """The refusal names the alternatives"""
+        wrapped = APIBlueprint.protect(auth=True, right=(RIGHT, OTHER_RIGHT))(_route)
+        with patch(f'{MODULE_PATH}.user_has_right', return_value=False):
+            with stub_cmdb_app().test_request_context():
+                with pytest.raises(HTTPException) as exc_info:
+                    wrapped(request_user=MagicMock())
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.FORBIDDEN, f'User has not the required right {RIGHT} or {OTHER_RIGHT}')
 
     @pytest.mark.parametrize('cloud_mode', [False, True], ids=['on-premise', 'cloud'])
     def test_the_token_is_never_read(self, cloud_mode: bool) -> None:

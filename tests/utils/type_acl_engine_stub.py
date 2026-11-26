@@ -17,8 +17,9 @@
 Lets a unit test's in-memory Types decide access through their type ACLs - the engine stubbed
 
 A unit test of a caller (a filter, a refusal) that hands Type documents carrying an ``acl`` around without a database
-calls ``decide_by_type_acls(monkeypatch, documents)``: the access engine's ``type_allows``, ``denied_type_ids``,
-``scope_filter`` and ``permitted_types_criteria`` then answer from those ACLs, read by the type ACL's own frozen rule
+calls ``decide_by_type_acls(monkeypatch, documents)``: the access engine's ``type_allows``, ``type_reachable``,
+``denied_type_ids``, ``scope_filter``, ``permitted_types_criteria`` and ``can`` (each state judged by its Type) then
+answer from those ACLs, read by the type ACL's own frozen rule
 (``acl_grants_access``). The engine itself is proven to decide alike (``test_type_acl_equivalence``); here only the
 caller is under test. A Type not registered is unrestricted.
 
@@ -28,6 +29,7 @@ every Type is unrestricted, every operation allowed and every field writable. Fo
 access (the write funnels, the importer, the render, the Type routes)
 """
 from collections.abc import Iterable, Mapping
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -45,6 +47,7 @@ from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.security.acl.helpers import acl_grants_access
+from cmdb.interface.rest_api.routes.access_routes import access_scope_guard
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -85,10 +88,20 @@ def decide_by_type_acls(monkeypatch: pytest.MonkeyPatch, type_documents: Iterabl
 
         return {TypeSchemaKey.PUBLIC_ID.value: {'$nin': denied}} if denied else {}
 
+    def can(user: Any, operation: Any, before: Any = None, after: Any = None) -> SimpleNamespace:
+        """Every state's Type must allow the operation"""
+        states: list[Any] = [state for state in (before, after) if state is not None]
+
+        return SimpleNamespace(allowed=all(type_allows(user, operation, state.get(CmdbObjectKey.TYPE_ID.value))
+                                           for state in states))
+
     monkeypatch.setattr(access_engine, 'type_allows', type_allows)
+    monkeypatch.setattr(access_engine, 'type_reachable', type_allows)
+    monkeypatch.setattr(access_engine, 'can', can)
     monkeypatch.setattr(access_engine, 'denied_type_ids', denied_type_ids)
     monkeypatch.setattr(access_engine, 'scope_filter', scope_filter)
     monkeypatch.setattr(access_engine, 'permitted_types_criteria', permitted_types_criteria)
+    no_conditional_assignments(monkeypatch)
 
 
 def decide_without_assignments(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,3 +116,16 @@ def decide_without_assignments(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(access_decision, 'load_grants', lambda _user: no_assignments)
     monkeypatch.setattr(access_filters, 'load_grants', lambda _user: no_assignments)
     monkeypatch.setattr(access_filters, 'load_access_rules', lambda _user: ([], []))
+    no_conditional_assignments(monkeypatch)
+
+
+def no_conditional_assignments(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Makes the stale-scope guards (``access_scope_guard``) read no conditional assignment - nothing to judge, nothing
+    more read
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The test's monkeypatch
+    """
+    monkeypatch.setattr(access_scope_guard, '_conditional_assignments', lambda _user: [])
+

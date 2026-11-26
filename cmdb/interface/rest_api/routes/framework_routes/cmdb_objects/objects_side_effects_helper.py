@@ -53,6 +53,7 @@ from werkzeug.exceptions import HTTPException
 from cmdb.database.json_codec import default
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+from cmdb.manager.object_scope_blocks import ObjectScopeBlocks
 from cmdb.manager import (
     ObjectsManager,
     LogsManager,
@@ -496,7 +497,34 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_ids: l
         ManagerType.OBJECT_RELATION_LOGS,
         request_user
     )
+    removed: list[dict[str, Any]] = []
 
+    try:
+        _delete_relation_rounds(request_user, public_ids, object_relations_manager, object_relation_logs_manager,
+                                removed)
+    finally:
+        # The other ends of the removed relations lost them from their related lists - also after a failure part-way
+        ObjectScopeBlocks(ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)).try_refresh_endpoints(removed)
+
+
+def _delete_relation_rounds(request_user: CmdbUser, public_ids: list[int],
+                            object_relations_manager: ObjectRelationsManager,
+                            object_relation_logs_manager: ObjectRelationLogsManager,
+                            removed: list[dict[str, Any]]) -> None:
+    """
+    The rounds of ``handle_delete_invalid_object_relations``: read, prepare the logs, delete exactly what was read,
+    log - until no relation is left or the rounds run out
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        public_ids (list[int]): public_ids of the deleted CmdbObjects
+        object_relations_manager (ObjectRelationsManager): Reads and deletes the relations
+        object_relation_logs_manager (ObjectRelationLogsManager): Writes their DELETE logs
+        removed (list[dict[str, Any]]): Receives every relation deleted, round by round
+
+    Raises:
+        BaseManagerGetError | BaseManagerDeleteError | BaseManagerInsertError: As the caller documents
+    """
     related_relations_query: dict[str, Any] = object_relations_manager.get_relations_of_objects_query(public_ids)
 
     for _round in range(RELATION_CASCADE_MAX_ROUNDS):
@@ -518,6 +546,7 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_ids: l
             ObjectRelationKey.PUBLIC_ID.value,
             [relation[ObjectRelationKey.PUBLIC_ID.value] for relation in affected_relations],
         ))
+        removed.extend(affected_relations)
 
         write_relation_delete_logs(object_relation_logs_manager, logs_to_create)
 

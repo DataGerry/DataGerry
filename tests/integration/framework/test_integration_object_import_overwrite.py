@@ -135,7 +135,7 @@ class TestReplaceStoredObject:
 
 
 class _ClashingManager:
-    """Forwards the replace with a value that clashes with a unique index, so the database refuses it"""
+    """Forwards the replace with a value that clashes with a unique index, so the database refuses it; reads pass"""
 
     def __init__(self, objects_manager: ObjectsManager) -> None:
         self.objects_manager = objects_manager
@@ -143,6 +143,10 @@ class _ClashingManager:
     def replace(self, public_id: int, document: dict[str, Any]) -> Any:
         """The real replace, of a document that duplicates the unique key"""
         return self.objects_manager.replace(public_id, {**document, UNIQUE_KEY_INDEX: 'taken'})
+
+    def aggregate_all(self, *args: Any, **kwargs: Any) -> Any:
+        """The real read - the scope block is computed before the replace"""
+        return self.objects_manager.aggregate_all(*args, **kwargs)
 
 
 class TestPlannedOverwrite:

@@ -23,6 +23,7 @@ from cmdb.manager.field_classes_manager import FieldClassesManager
 from cmdb.manager.scope_roles_manager import ScopeRolesManager
 from cmdb.manager.types_manager import TypesManager
 from cmdb.models.access_model import ALL_TYPES, ScopeRoleKey
+from cmdb.models.group_model import in_administrator_group
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.access_rules.access_rule_constants import AccessRuleMessage
@@ -66,9 +67,10 @@ def scope_role_reference_problems(role: dict[str, Any], types_manager: TypesMana
     """
     Judges what a role names: every listed Type must be stored and readable by the caller, every granted field class
     stored. A Type the caller may not read is refused as one that does not exist - the answer tells them apart
-    nowhere. Two reads for the Types (the existing ids, the caller's denied ones), one for the classes, and none for
-    a role covering every Type, granting no class, or a body leaving the key out - an update judges only the
-    references it sends, so a stored reference gone stale does not block an unrelated change
+    nowhere; an administrator may name every stored Type, so they can re-grant themselves one hidden from them. Two
+    reads for the Types (the existing ids, the caller's denied ones - not for an administrator), one for the classes,
+    and none for a role covering every Type, granting no class, or a body leaving the key out - an update judges only
+    the references it sends, so a stored reference gone stale does not block an unrelated change
 
     Args:
         role (dict[str, Any]): The references to judge - a create's whole body, an update's sent keys
@@ -88,8 +90,12 @@ def scope_role_reference_problems(role: dict[str, Any], types_manager: TypesMana
     classes: list[str] = role.get(ScopeRoleKey.FIELD_CLASSES.value) or []
 
     if types != ALL_TYPES and types:
-        readable: set[int] = (types_manager.get_existing_type_ids(list(types))
-                              - set(types_manager.get_denied_type_ids(request_user, AccessControlPermission.READ)))
+        readable: set[int] = types_manager.get_existing_type_ids(list(types))
+
+        # An administrator names any stored Type - so they can re-grant themselves one hidden from them
+        if not in_administrator_group(request_user.group_ids):
+            readable = readable - set(types_manager.get_denied_type_ids(request_user, AccessControlPermission.READ))
+
         missing_types: list[int] = unknown_type_ids(types, readable)
 
         if missing_types:

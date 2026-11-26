@@ -51,6 +51,8 @@ TYPE_ID: int = 9401
 MISSING_TYPE_ID: int = 9409
 HIDDEN_TYPE_ID: int = 9402
 READER: CmdbUser = CmdbUser(public_id=9491, user_name='wr-reader', active=True, group_ids=[ADMIN_GROUP_ID])
+# In no group holding an assignment: both seeded Types are restricted for it
+OUTSIDER: CmdbUser = CmdbUser(public_id=9492, user_name='wr-outsider', active=True, group_ids=[9493])
 ROLE_ID: int = 9411
 OTHER_ROLE_ID: int = 9412
 MISSING_ROLE_ID: int = 9419
@@ -113,15 +115,18 @@ def test_a_role_does_not_clash_with_itself(database_manager: MongoDatabaseManage
 @pytest.mark.usefixtures('rest_api_app_context')
 def test_the_role_references(database_manager: MongoDatabaseManager) -> None:
     """A stored, readable Type and a stored class pass; a missing Type, a Type the caller may not read and a missing
-    class are named - the hidden Type exactly like the missing one"""
+    class are named - the hidden Type exactly like the missing one. The administrator names every stored Type"""
     types_manager, classes_manager = TypesManager(database_manager), FieldClassesManager(database_manager)
+    role: dict[str, Any] = {'types': [TYPE_ID, HIDDEN_TYPE_ID, MISSING_TYPE_ID], 'field_classes': ['wr-none']}
 
     assert not scope_role_reference_problems({'types': [TYPE_ID], 'field_classes': [CLASS_NAME]}, types_manager,
                                              classes_manager, READER)
-    assert scope_role_reference_problems(
-        {'types': [TYPE_ID, HIDDEN_TYPE_ID, MISSING_TYPE_ID], 'field_classes': ['wr-none']},
-        types_manager, classes_manager, READER) == [
-        AccessRuleMessage.UNKNOWN_TYPES.value.format(ids=[HIDDEN_TYPE_ID, MISSING_TYPE_ID]),
+    assert scope_role_reference_problems(role, types_manager, classes_manager, OUTSIDER) == [
+        AccessRuleMessage.UNKNOWN_TYPES.value.format(ids=[TYPE_ID, HIDDEN_TYPE_ID, MISSING_TYPE_ID]),
+        AccessRuleMessage.UNKNOWN_FIELD_CLASSES.value.format(names=['wr-none']),
+    ]
+    assert scope_role_reference_problems(role, types_manager, classes_manager, READER) == [
+        AccessRuleMessage.UNKNOWN_TYPES.value.format(ids=[MISSING_TYPE_ID]),
         AccessRuleMessage.UNKNOWN_FIELD_CLASSES.value.format(names=['wr-none']),
     ]
 

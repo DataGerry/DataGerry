@@ -24,7 +24,7 @@ from typing import Any
 
 from werkzeug import Response
 
-from cmdb.manager import AccessAssignmentsManager, GroupsManager, ScopeRolesManager
+from cmdb.manager import AccessAssignmentsManager, GroupsManager, ScopeRolesManager, TypesManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.access_model import AccessAssignmentKey, CmdbAccessAssignment
@@ -34,7 +34,10 @@ from cmdb.interface.rest_api.routes.access_routes.access_change_guard import (
     assignment_delete_effect,
     guard_assignment_write,
 )
+from cmdb.interface.rest_api.routes.access_routes.access_delegation import abort_unless_delegable
+from cmdb.interface.rest_api.routes.access_routes.assignment_simulation_helper import simulate_assignment
 from cmdb.interface.rest_api.routes.access_routes.access_payloads import (
+    checked_scope,
     abort_if_beyond_own_reach,
     assignment_payload,
 )
@@ -45,8 +48,10 @@ from cmdb.interface.rest_api.responses import GetSingleResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 from cmdb.interface.rest_api.routes.access_routes.access_route_constants import (
+    ASSIGNMENT_CHECK_SCHEMA,
     ASSIGNMENT_CREATE_SCHEMA,
     ASSIGNMENT_SEARCHABLE_FIELDS,
+    ASSIGNMENT_SIMULATE_SCHEMA,
     ASSIGNMENT_UPDATE_SCHEMA,
     AccessRightName,
     AccessUsageKey,
@@ -64,6 +69,9 @@ assignments_blueprint = APIBlueprint('assignments', __name__)
 
 # What the 404 calls the document
 LABEL: str = 'Assignment'
+# An assignment write is open to its editors and its delegates - the delegation rule then judges a delegate's
+ASSIGNMENT_WRITE_RIGHTS: tuple[str, str] = (AccessRightName.ASSIGNMENT_EDIT.value,
+                                            AccessRightName.ASSIGNMENT_DELEGATE.value)
 
 
 def _manager(request_user: CmdbUser) -> AccessAssignmentsManager:
@@ -101,7 +109,8 @@ def _judged(manager: AccessAssignmentsManager, request_user: CmdbUser, assignmen
     """
     groups: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
     roles: ScopeRolesManager = ManagerProvider.get_manager(ManagerType.SCOPE_ROLES, request_user)
-    payload: dict[str, Any] = assignment_payload(manager, groups, roles, assignment, own_id, sent)
+    types: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    payload: dict[str, Any] = assignment_payload(manager, groups, roles, assignment, own_id, sent, types)
     group_id: int = payload[AccessAssignmentKey.GROUP_ID.value]
 
     if group_id in request_user.group_ids:
@@ -129,7 +138,7 @@ def _taken(assignment: dict[str, Any]) -> str:
 @assignments_blueprint.route('', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
-@assignments_blueprint.protect(auth=True, right=AccessRightName.ASSIGNMENT_EDIT.value)
+@assignments_blueprint.protect(auth=True, right=ASSIGNMENT_WRITE_RIGHTS)
 @assignments_blueprint.validate(ASSIGNMENT_CREATE_SCHEMA)
 @handle_route_errors("while creating a assignment")
 def create_assignment(data: dict[str, Any], request_user: CmdbUser) -> Response:
@@ -142,16 +151,71 @@ def create_assignment(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
     Raises:
         HTTPException: 400 for a body failing the schema or the write rules, or locking a Type; 403 for a group of
-            the caller's given more than the caller holds
+            the caller's given more than the caller holds, or a delegate's role beyond their own access
 
     Returns:
         InsertSingleResponse: 201 with the stored assignment and its public_id
     """
     manager: AccessAssignmentsManager = _manager(request_user)
     payload: dict[str, Any] = _judged(manager, request_user, data)
+    abort_unless_delegable(request_user, [payload[AccessAssignmentKey.ROLE_ID.value]])
     guard_assignment_write(request_user, None, payload)
 
     return create_response(manager, CmdbAccessAssignment, payload, _taken(payload))
+
+@assignments_blueprint.route('/check', methods=['POST'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@assignments_blueprint.protect(auth=True, right=AccessRightName.VIEW.value)
+@assignments_blueprint.validate(ASSIGNMENT_CHECK_SCHEMA)
+@handle_route_errors("while checking a scope")
+def check_assignment_scope(data: dict[str, Any], request_user: CmdbUser) -> Response:
+    """
+    HTTP `POST` route judging a scope against a scope role's Types without writing anything - what the scope builder
+    flags in the dialog (phase 9, R30)
+
+    Args:
+        data (dict[str, Any]): ``{role_id, scope}``
+        request_user (CmdbUser): The caller
+
+    Raises:
+        HTTPException: 400 naming every problem - the role missing, the scope's shape, its fields, its values
+
+    Returns:
+        GetSingleResponse: ``{role_id, scope}`` - the scope as it would be stored (cast, canonical)
+    """
+    roles: ScopeRolesManager = ManagerProvider.get_manager(ManagerType.SCOPE_ROLES, request_user)
+    types: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    role_id: int = data[AccessAssignmentKey.ROLE_ID.value]
+    scope: Any = checked_scope(roles, types, role_id, data[AccessAssignmentKey.SCOPE.value])
+
+    return GetSingleResponse({AccessAssignmentKey.ROLE_ID.value: role_id, AccessAssignmentKey.SCOPE.value: scope},
+                             body=True).make_response()
+
+
+@assignments_blueprint.route('/simulate', methods=['POST'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@assignments_blueprint.protect(auth=True, right=AccessRightName.VIEW.value)
+@assignments_blueprint.validate(ASSIGNMENT_SIMULATE_SCHEMA)
+@handle_route_errors("while simulating an assignment")
+def simulate_assignment_route(data: dict[str, Any], request_user: CmdbUser) -> Response:
+    """
+    HTTP `POST` route simulating an assignment before it is saved - what it would reach, per Type, with samples, who it
+    affects, what a change gains and loses, and the warnings; nothing written (phase 11)
+
+    Args:
+        data (dict[str, Any]): ``{group_id, role_id, scope, assignment_id?}``
+        request_user (CmdbUser): The caller
+
+    Raises:
+        HTTPException: 400 naming every problem (as a save), 404 for a gone ``assignment_id``, 503 past the query
+            time budget
+
+    Returns:
+        GetSingleResponse: The simulation, counted within the caller's own view
+    """
+    return GetSingleResponse(simulate_assignment(request_user, data), body=True).make_response()
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -203,7 +267,7 @@ def get_assignment(public_id: int, request_user: CmdbUser) -> Response:
 @assignments_blueprint.route('/<int:public_id>', methods=['PUT'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
-@assignments_blueprint.protect(auth=True, right=AccessRightName.ASSIGNMENT_EDIT.value)
+@assignments_blueprint.protect(auth=True, right=ASSIGNMENT_WRITE_RIGHTS)
 @assignments_blueprint.validate(ASSIGNMENT_UPDATE_SCHEMA)
 @handle_route_errors("while updating the assignment with ID: {public_id}")
 def update_assignment(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
@@ -218,7 +282,7 @@ def update_assignment(public_id: int, data: dict[str, Any], request_user: CmdbUs
     Raises:
         HTTPException: 404 when it does not exist; 400 for a body failing the schema or the write rules, locking a
             Type or opening one without ``unrestrict=true``; 403 for a group of the caller's given more than the caller
-            holds
+            holds, or a delegate's role - before or after - beyond their own access
 
     Returns:
         UpdateSingleResponse: 202 with the assignment as stored
@@ -226,6 +290,8 @@ def update_assignment(public_id: int, data: dict[str, Any], request_user: CmdbUs
     manager: AccessAssignmentsManager = _manager(request_user)
     stored: dict[str, Any] = load_or_404(manager, public_id, LABEL)
     payload: dict[str, Any] = _judged(manager, request_user, keep_omitted_keys(data, stored), public_id, data)
+    abort_unless_delegable(request_user, [stored[AccessAssignmentKey.ROLE_ID.value],
+                                          payload[AccessAssignmentKey.ROLE_ID.value]])
     guard_assignment_write(request_user, stored, payload)
 
     return update_response(manager, CmdbAccessAssignment, public_id, payload, _taken(payload))
@@ -235,7 +301,7 @@ def update_assignment(public_id: int, data: dict[str, Any], request_user: CmdbUs
 @assignments_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
-@assignments_blueprint.protect(auth=True, right=AccessRightName.ASSIGNMENT_EDIT.value)
+@assignments_blueprint.protect(auth=True, right=ASSIGNMENT_WRITE_RIGHTS)
 @handle_route_errors("while deleting the assignment with ID: {public_id}")
 def delete_assignment(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -254,6 +320,7 @@ def delete_assignment(public_id: int, request_user: CmdbUser) -> Response:
     """
     manager: AccessAssignmentsManager = _manager(request_user)
     stored: dict[str, Any] = load_or_404(manager, public_id, LABEL)
+    abort_unless_delegable(request_user, [stored[AccessAssignmentKey.ROLE_ID.value]])
     guard_assignment_write(request_user, stored, None)
 
     return delete_response(manager, stored)

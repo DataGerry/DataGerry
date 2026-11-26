@@ -27,13 +27,14 @@ from .scope_role_rules import (
     scope_role_name_taken,
 )
 from .assignment_rules import canonical_scope, assignment_reference_problems, assignment_taken
-from .escalation_rules import types_beyond, beyond_reach, own_reach_problem
+from .escalation_rules import types_beyond, beyond_reach, own_reach_problem, delegation_problem
 from .type_access_states import (
     TypeAccessState,
     assigned_roles,
     viewable_types,
     type_states,
     changed_types,
+    newly_restricted,
     access_change_problems,
     involved_types,
 )
@@ -46,11 +47,13 @@ __all__: list[str] = [
     'types_beyond',
     'beyond_reach',
     'own_reach_problem',
+    'delegation_problem',
     'TypeAccessState',
     'assigned_roles',
     'viewable_types',
     'type_states',
     'changed_types',
+    'newly_restricted',
     'access_change_problems',
     'involved_types',
     'clashes',

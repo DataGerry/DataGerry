@@ -17,7 +17,8 @@
 Unit tests for cmdb_objects.objects_update_read - the reads of an object update
 
 The target is read once, raw; the object is built from a copy so the raw document stays the ledger's snapshot; the
-type comes from the request's cache; the read check uses that type; failures are the manager's own errors
+type comes from the request's cache; the read check judges the stored object (its scope conditions, phase 9);
+failures are the manager's own errors
 """
 from types import SimpleNamespace
 from typing import Any
@@ -67,20 +68,20 @@ class TestReadUpdateTarget:
         cached = MagicMock()
         context = _context(_document(), {TYPE_ID: cached})
 
-        with patch(f'{READ_PATH}.verify_access') as verify:
+        with patch(f'{READ_PATH}.verify_object_access') as verify:
             target = read_update_target(OBJECT_ID, context)
 
         assert target.current_type is cached
         context.objects_manager.get_object_type.assert_not_called()
         verify.assert_called_once()
-        assert verify.call_args.args[0] is cached
+        assert verify.call_args.args[0] == _document()
 
     def test_the_raw_document_is_left_untouched(self) -> None:
         """It is the write ledger's snapshot - the object is built from a copy"""
         document = _document()
         context = _context(document, {TYPE_ID: MagicMock()})
 
-        with patch(f'{READ_PATH}.verify_access'):
+        with patch(f'{READ_PATH}.verify_object_access'):
             target = read_update_target(OBJECT_ID, context)
 
         assert target.stored_document is document
@@ -91,7 +92,7 @@ class TestReadUpdateTarget:
         """No get_object - the raw read is the only object read"""
         context = _context(_document(), {TYPE_ID: MagicMock()})
 
-        with patch(f'{READ_PATH}.verify_access'):
+        with patch(f'{READ_PATH}.verify_object_access'):
             read_update_target(OBJECT_ID, context)
 
         context.objects_manager.get_one.assert_called_once_with(OBJECT_ID)
@@ -121,7 +122,7 @@ class TestReadUpdateTarget:
         """The routes answer it 403, as for get_object"""
         context = _context(_document(), {TYPE_ID: MagicMock()})
 
-        with patch(f'{READ_PATH}.verify_access', side_effect=AccessDeniedError('no')), \
+        with patch(f'{READ_PATH}.verify_object_access', side_effect=AccessDeniedError('no')), \
                 pytest.raises(AccessDeniedError):
             read_update_target(OBJECT_ID, context)
 
@@ -136,7 +137,7 @@ class TestReadUpdateTarget:
         """The three parts, named"""
         context = _context(_document(), {TYPE_ID: MagicMock()})
 
-        with patch(f'{READ_PATH}.verify_access'):
+        with patch(f'{READ_PATH}.verify_object_access'):
             assert isinstance(read_update_target(OBJECT_ID, context), UpdateTarget)
 
 
